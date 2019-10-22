@@ -18,7 +18,7 @@ import (
 	log "github.com/33cn/chain33/common/log/log15"
 	"github.com/33cn/chain33/queue"
 	"github.com/33cn/chain33/types"
-	"github.com/hashicorp/golang-lru"
+	lru "github.com/hashicorp/golang-lru"
 )
 
 //var
@@ -116,6 +116,9 @@ type BlockChain struct {
 	blockSynInterVal time.Duration
 	DefCacheSize     int64
 	failed           int32
+
+	blockOnChain   *BlockOnChain
+	onChainTimeout int64
 }
 
 //New new
@@ -157,6 +160,8 @@ func New(cfg *types.BlockChain) *BlockChain {
 		MaxFetchBlockNum:    128 * 6, //一次最多申请获取block个数
 		TimeoutSeconds:      2,
 		isFastDownloadSync:  true,
+		blockOnChain:        &BlockOnChain{},
+		onChainTimeout:      0,
 	}
 	blockchain.initConfig(cfg)
 	return blockchain
@@ -179,6 +184,11 @@ func (chain *BlockChain) initConfig(cfg *types.BlockChain) {
 	chain.isRecordBlockSequence = cfg.IsRecordBlockSequence
 	chain.isParaChain = cfg.IsParaChain
 	types.S("quickIndex", cfg.EnableTxQuickIndex)
+
+	if cfg.OnChainTimeout > 0 {
+		chain.onChainTimeout = cfg.OnChainTimeout
+	}
+	chain.initOnChainTimeout()
 }
 
 //Close 关闭区块链
@@ -245,7 +255,10 @@ func (chain *BlockChain) GetOrphanPool() *OrphanPool {
 //InitBlockChain 区块链初始化
 func (chain *BlockChain) InitBlockChain() {
 	//isRecordBlockSequence配置的合法性检测
-	chain.blockStore.SequenceMustValid(chain.isRecordBlockSequence)
+	seqStatus := chain.blockStore.CheckSequenceStatus(chain.isRecordBlockSequence)
+	if seqStatus == seqStatusNeedCreate {
+		chain.blockStore.CreateSequences(100000)
+	}
 
 	//先缓存最新的128个block信息到cache中
 	curheight := chain.GetBlockHeight()
@@ -269,7 +282,7 @@ func (chain *BlockChain) InitBlockChain() {
 		}
 	}
 	types.S("dbversion", curdbver)
-	if !chain.cfg.IsParaChain {
+	if !chain.cfg.IsParaChain && chain.cfg.RollbackBlock <= 0 {
 		// 定时检测/同步block
 		go chain.SynRoutine()
 
@@ -499,4 +512,14 @@ func (chain *BlockChain) ProcFutureBlocks() {
 			}
 		}
 	}
+}
+
+//SetValueByKey 设置kv对到blockchain数据库
+func (chain *BlockChain) SetValueByKey(kvs *types.LocalDBSet) error {
+	return chain.blockStore.SetConsensusPara(kvs)
+}
+
+//GetValueByKey 通过key值从blockchain数据库中获取value值
+func (chain *BlockChain) GetValueByKey(keys *types.LocalDBGet) *types.LocalReplyValue {
+	return chain.blockStore.Get(keys)
 }

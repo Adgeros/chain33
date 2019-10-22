@@ -274,6 +274,8 @@ func TestExecBlock(t *testing.T) {
 	tx := CreateCoinsTx(priv, addr, types.Coin)
 	tx.Sign(types.SECP256K1, priv)
 	txs = append(txs, tx)
+	//EventExecTxList returned 2 txs' receipt
+	txs = append(txs, tx)
 	_, _, err := ExecBlock(client, nil, &types.Block{Txs: txs}, false, true, false)
 	assert.NoError(t, err)
 }
@@ -293,9 +295,15 @@ func TestExecBlockUpgrade(t *testing.T) {
 func TestExecAndCheckBlock(t *testing.T) {
 	client := &testClient{}
 	client.On("Send", mock.Anything, mock.Anything).Return(nil)
-	_, err := ExecAndCheckBlock(client, &types.Block{}, nil, 0)
-	assert.NoError(t, err)
-	_, err = ExecAndCheckBlock2(client, &types.Block{}, nil, nil)
+	addr, priv := Genaddress()
+	tx := CreateCoinsTx(priv, addr, types.Coin)
+	tx.Sign(types.SECP256K1, priv)
+	tx2 := CreateCoinsTx(priv, addr, 2*types.Coin)
+	tx2.Sign(types.SECP256K1, priv)
+	var txs []*types.Transaction
+	txs = append(txs, tx)
+	txs = append(txs, tx2)
+	_, err := ExecAndCheckBlock(client, &types.Block{}, txs, []int{types.ExecOk, types.ExecErr})
 	assert.NoError(t, err)
 }
 

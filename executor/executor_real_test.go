@@ -65,14 +65,15 @@ func TestTxGroup(t *testing.T) {
 	txs = append(txs, util.CreateCoinsTx(priv2, addr3, types.Coin))
 	txs = append(txs, util.CreateCoinsTx(priv3, addr4, types.Coin))
 	//执行三笔交易: 全部正确
-	txgroup, err := types.CreateTxGroup(txs)
+	feeRate := types.GInt("MinFee")
+	txgroup, err := types.CreateTxGroup(txs, feeRate)
 	assert.Nil(t, err)
 	//重新签名
 	txgroup.SignN(0, types.SECP256K1, genkey)
 	txgroup.SignN(1, types.SECP256K1, priv2)
 	txgroup.SignN(2, types.SECP256K1, priv3)
 	//返回新的区块
-	block, err = util.ExecAndCheckBlock(mock33.GetClient(), block, txgroup.GetTxs(), types.ExecOk)
+	block, err = util.ExecAndCheckBlock(mock33.GetClient(), block, txgroup.GetTxs(), []int{types.ExecOk, types.ExecOk, types.ExecOk})
 	assert.Nil(t, err)
 	assert.Equal(t, mock33.GetAccount(block.StateHash, mock33.GetGenesisAddress()).Balance, int64(9999999899700000))
 	assert.Equal(t, mock33.GetAccount(block.StateHash, addr2).Balance, int64(0))
@@ -85,14 +86,14 @@ func TestTxGroup(t *testing.T) {
 	txs = append(txs, util.CreateCoinsTx(genkey, addr4, types.Coin))
 	txs = append(txs, util.CreateCoinsTx(genkey, addr4, types.Coin))
 
-	txgroup, err = types.CreateTxGroup(txs)
+	txgroup, err = types.CreateTxGroup(txs, feeRate)
 	assert.Nil(t, err)
 	//重新签名
 	txgroup.SignN(0, types.SECP256K1, priv2)
 	txgroup.SignN(1, types.SECP256K1, genkey)
 	txgroup.SignN(2, types.SECP256K1, genkey)
 
-	_, err = util.ExecAndCheckBlock(mock33.GetClient(), block, txgroup.GetTxs(), types.ExecErr)
+	_, err = util.ExecAndCheckBlock(mock33.GetClient(), block, txgroup.GetTxs(), []int{types.ExecErr, types.ExecErr, types.ExecErr})
 	assert.Nil(t, err)
 	//执行三笔交易：第二比错误
 	txs = nil
@@ -100,14 +101,14 @@ func TestTxGroup(t *testing.T) {
 	txs = append(txs, util.CreateCoinsTx(priv2, addr4, 2*types.Coin))
 	txs = append(txs, util.CreateCoinsTx(genkey, addr4, types.Coin))
 
-	txgroup, err = types.CreateTxGroup(txs)
+	txgroup, err = types.CreateTxGroup(txs, feeRate)
 	assert.Nil(t, err)
 	//重新签名
 	txgroup.SignN(0, types.SECP256K1, genkey)
 	txgroup.SignN(1, types.SECP256K1, priv2)
 	txgroup.SignN(2, types.SECP256K1, genkey)
 
-	_, err = util.ExecAndCheckBlock(mock33.GetClient(), block, txgroup.GetTxs(), types.ExecPack)
+	_, err = util.ExecAndCheckBlock(mock33.GetClient(), block, txgroup.GetTxs(), []int{types.ExecPack, types.ExecPack, types.ExecPack})
 	assert.Nil(t, err)
 	//执行三笔交易: 第三比错误
 	txs = nil
@@ -115,14 +116,14 @@ func TestTxGroup(t *testing.T) {
 	txs = append(txs, util.CreateCoinsTx(genkey, addr4, types.Coin))
 	txs = append(txs, util.CreateCoinsTx(priv2, addr4, 10*types.Coin))
 
-	txgroup, err = types.CreateTxGroup(txs)
+	txgroup, err = types.CreateTxGroup(txs, feeRate)
 	assert.Nil(t, err)
 	//重新签名
 	txgroup.SignN(0, types.SECP256K1, genkey)
 	txgroup.SignN(1, types.SECP256K1, genkey)
 	txgroup.SignN(2, types.SECP256K1, priv2)
 
-	_, err = util.ExecAndCheckBlock(mock33.GetClient(), block, txgroup.GetTxs(), types.ExecPack)
+	_, err = util.ExecAndCheckBlock(mock33.GetClient(), block, txgroup.GetTxs(), []int{types.ExecPack, types.ExecPack, types.ExecPack})
 	assert.Nil(t, err)
 	//执行三笔交易：其中有一笔是user.xxx的执行器
 	txs = nil
@@ -131,14 +132,14 @@ func TestTxGroup(t *testing.T) {
 	txs = append(txs, util.CreateCoinsTx(priv2, addr4, 10*types.Coin))
 	txs[2].Execer = []byte("user.xxx")
 	txs[2].To = address.ExecAddress("user.xxx")
-	txgroup, err = types.CreateTxGroup(txs)
+	txgroup, err = types.CreateTxGroup(txs, feeRate)
 	assert.Nil(t, err)
 	//重新签名
 	txgroup.SignN(0, types.SECP256K1, genkey)
 	txgroup.SignN(1, types.SECP256K1, genkey)
 	txgroup.SignN(2, types.SECP256K1, priv2)
 
-	_, err = util.ExecAndCheckBlock2(mock33.GetClient(), block, txgroup.GetTxs(), []int{2, 2, 1})
+	_, err = util.ExecAndCheckBlock(mock33.GetClient(), block, txgroup.GetTxs(), []int{2, 2, 1})
 	assert.Nil(t, err)
 }
 
