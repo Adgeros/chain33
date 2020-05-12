@@ -7,6 +7,8 @@ package wallet
 import (
 	"encoding/hex"
 	"fmt"
+	"io/ioutil"
+	"os"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -46,7 +48,7 @@ func (wallet *Wallet) ProcSignRawTx(unsigned *types.ReqSignRawTx) (string, error
 
 	var key crypto.PrivKey
 	if unsigned.GetAddr() != "" {
-		ok, err := wallet.CheckWalletStatus()
+		ok, err := wallet.checkWalletStatus()
 		if !ok {
 			return "", err
 		}
@@ -103,8 +105,10 @@ func (wallet *Wallet) ProcSignRawTx(unsigned *types.ReqSignRawTx) (string, error
 	if err != nil {
 		return "", err
 	}
-	tx.SetExpire(time.Duration(expire))
-	if policy, ok := wcom.PolicyContainer[string(types.GetParaExec(tx.Execer))]; ok {
+	types.AssertConfig(wallet.client)
+	cfg := wallet.client.GetConfig()
+	tx.SetExpire(cfg, time.Duration(expire))
+	if policy, ok := wcom.PolicyContainer[string(cfg.GetParaExec(tx.Execer))]; ok {
 		// 尝试让策略自己去完成签名
 		needSysSign, signtx, err := policy.SignTransaction(key, unsigned)
 		if !needSysSign {
@@ -126,6 +130,9 @@ func (wallet *Wallet) ProcSignRawTx(unsigned *types.ReqSignRawTx) (string, error
 		return "", types.ErrIndex
 	}
 	if index <= 0 {
+		//设置过期需要重构
+		group.SetExpire(cfg, 0, time.Duration(expire))
+		group.RebuiltGroup()
 		for i := range group.Txs {
 			err := group.SignN(i, int32(wallet.SignType), key)
 			if err != nil {
@@ -239,7 +246,7 @@ func (wallet *Wallet) ProcCreateNewAccount(Label *types.ReqNewAccount) (*types.W
 	wallet.mtx.Lock()
 	defer wallet.mtx.Unlock()
 
-	ok, err := wallet.CheckWalletStatus()
+	ok, err := wallet.checkWalletStatus()
 	if !ok {
 		return nil, err
 	}
@@ -397,8 +404,12 @@ func (wallet *Wallet) ProcWalletTxList(TxList *types.ReqWalletTransactionList) (
 func (wallet *Wallet) ProcImportPrivKey(PrivKey *types.ReqWalletImportPrivkey) (*types.WalletAccount, error) {
 	wallet.mtx.Lock()
 	defer wallet.mtx.Unlock()
+	walletaccount, err := wallet.procImportPrivKey(PrivKey)
+	return walletaccount, err
+}
 
-	ok, err := wallet.CheckWalletStatus()
+func (wallet *Wallet) procImportPrivKey(PrivKey *types.ReqWalletImportPrivkey) (*types.WalletAccount, error) {
+	ok, err := wallet.checkWalletStatus()
 	if !ok {
 		return nil, err
 	}
@@ -446,7 +457,6 @@ func (wallet *Wallet) ProcImportPrivKey(PrivKey *types.ReqWalletImportPrivkey) (
 		}
 		walletlog.Error("ProcImportPrivKey!", "Account.Privkey", Account.Privkey, "input Privkey", PrivKey.Privkey)
 		return nil, types.ErrPrivkey
-
 	}
 
 	var walletaccount types.WalletAccount
@@ -506,7 +516,7 @@ func (wallet *Wallet) ProcSendToAddress(SendToAddress *types.ReqWalletSendToAddr
 		return nil, types.ErrInvalidParam
 	}
 
-	ok, err := wallet.IsTransfer(SendToAddress.GetTo())
+	ok, err := wallet.isTransfer(SendToAddress.GetTo())
 	if !ok {
 		return nil, err
 	}
@@ -537,7 +547,7 @@ func (wallet *Wallet) ProcSendToAddress(SendToAddress *types.ReqWalletSendToAddr
 			return nil, types.ErrInsufficientBalance
 		}
 		if nil == wallet.accTokenMap[SendToAddress.TokenSymbol] {
-			tokenAccDB, err := account.NewAccountDB("token", SendToAddress.TokenSymbol, nil)
+			tokenAccDB, err := account.NewAccountDB(wallet.api.GetConfig(), "token", SendToAddress.TokenSymbol, nil)
 			if err != nil {
 				return nil, err
 			}
@@ -645,7 +655,7 @@ func (wallet *Wallet) ProcMergeBalance(MergeBalance *types.ReqWalletMergeBalance
 	wallet.mtx.Lock()
 	defer wallet.mtx.Unlock()
 
-	ok, err := wallet.CheckWalletStatus()
+	ok, err := wallet.checkWalletStatus()
 	if !ok {
 		return nil, err
 	}
@@ -691,6 +701,8 @@ func (wallet *Wallet) ProcMergeBalance(MergeBalance *types.ReqWalletMergeBalance
 
 	var ReplyHashes types.ReplyHashes
 
+	types.AssertConfig(wallet.client)
+	cfg := wallet.client.GetConfig()
 	for index, Account := range accounts {
 		Privkey := WalletAccStores[index].Privkey
 		//解密存储的私钥
@@ -719,19 +731,19 @@ func (wallet *Wallet) ProcMergeBalance(MergeBalance *types.ReqWalletMergeBalance
 		v := &cty.CoinsAction_Transfer{
 			Transfer: &types.AssetsTransfer{Amount: amount, Note: []byte(note)},
 		}
-		if types.IsPara() {
+		if cfg.IsPara() {
 			v.Transfer.To = MergeBalance.GetTo()
 		}
 		transfer := &cty.CoinsAction{Value: v, Ty: cty.CoinsActionTransfer}
 		//初始化随机数
 		exec := []byte("coins")
 		toAddr := addrto
-		if types.IsPara() {
-			exec = []byte(types.GetTitle() + "coins")
+		if cfg.IsPara() {
+			exec = []byte(cfg.GetTitle() + "coins")
 			toAddr = address.ExecAddress(string(exec))
 		}
 		tx := &types.Transaction{Execer: exec, Payload: types.Encode(transfer), Fee: wallet.FeeAmount, To: toAddr, Nonce: wallet.random.Int63()}
-		tx.SetExpire(time.Second * 120)
+		tx.SetExpire(cfg, time.Second*120)
 		tx.Sign(int32(wallet.SignType), priv)
 		//walletlog.Info("ProcMergeBalance", "tx.Nonce", tx.Nonce, "tx", tx, "index", index)
 
@@ -768,7 +780,7 @@ func (wallet *Wallet) ProcWalletSetPasswd(Passwd *types.ReqWalletSetPasswd) erro
 	wallet.mtx.Lock()
 	defer wallet.mtx.Unlock()
 
-	isok, err := wallet.CheckWalletStatus()
+	isok, err := wallet.checkWalletStatus()
 	if !isok && err == types.ErrSaveSeedFirst {
 		return err
 	}
@@ -937,11 +949,13 @@ func (wallet *Wallet) ProcWalletAddBlock(block *types.BlockDetail) {
 		return
 	}
 	//walletlog.Error("ProcWalletAddBlock", "height", block.GetBlock().GetHeight())
+	types.AssertConfig(wallet.client)
+	cfg := wallet.client.GetConfig()
 	txlen := len(block.Block.GetTxs())
 	newbatch := wallet.walletStore.NewBatch(true)
 	for index := 0; index < txlen; index++ {
 		tx := block.Block.Txs[index]
-		execer := string(types.GetParaExec(tx.Execer))
+		execer := string(cfg.GetParaExec(tx.Execer))
 		// 执行钱包业务逻辑策略
 		if policy, ok := wcom.PolicyContainer[execer]; ok {
 			wtxdetail := policy.OnAddBlockTx(block, tx, int32(index), newbatch)
@@ -1059,7 +1073,8 @@ func (wallet *Wallet) ProcWalletDelBlock(block *types.BlockDetail) {
 		return
 	}
 	//walletlog.Error("ProcWalletDelBlock", "height", block.GetBlock().GetHeight())
-
+	types.AssertConfig(wallet.client)
+	cfg := wallet.client.GetConfig()
 	txlen := len(block.Block.GetTxs())
 	newbatch := wallet.walletStore.NewBatch(true)
 	for index := txlen - 1; index >= 0; index-- {
@@ -1067,7 +1082,7 @@ func (wallet *Wallet) ProcWalletDelBlock(block *types.BlockDetail) {
 		heightstr := fmt.Sprintf("%018d", blockheight)
 		tx := block.Block.Txs[index]
 
-		execer := string(types.GetParaExec(tx.Execer))
+		execer := string(cfg.GetParaExec(tx.Execer))
 		// 执行钱包业务逻辑策略
 		if policy, ok := wcom.PolicyContainer[execer]; ok {
 			wtxdetail := policy.OnDeleteBlockTx(block, tx, int32(index), newbatch)
@@ -1172,9 +1187,17 @@ func (wallet *Wallet) GenSeed(lang int32) (*types.ReplySeed, error) {
 	return wallet.genSeed(lang)
 }
 
+//GetSeed:获取seed种子, 通过钱包密码
+func (wallet *Wallet) GetSeed(password string) (string, error) {
+	wallet.mtx.Lock()
+	defer wallet.mtx.Unlock()
+
+	return wallet.getSeed(password)
+}
+
 //获取seed种子, 通过钱包密码
 func (wallet *Wallet) getSeed(password string) (string, error) {
-	ok, err := wallet.CheckWalletStatus()
+	ok, err := wallet.checkWalletStatus()
 	if !ok {
 		return "", err
 	}
@@ -1269,7 +1292,7 @@ func (wallet *Wallet) ProcDumpPrivkey(addr string) (string, error) {
 	wallet.mtx.Lock()
 	defer wallet.mtx.Unlock()
 
-	ok, err := wallet.CheckWalletStatus()
+	ok, err := wallet.checkWalletStatus()
 	if !ok {
 		return "", err
 	}
@@ -1325,7 +1348,7 @@ func (wallet *Wallet) createNewAccountByIndex(index uint32) (string, error) {
 	wallet.mtx.Lock()
 	defer wallet.mtx.Unlock()
 
-	ok, err := wallet.CheckWalletStatus()
+	ok, err := wallet.checkWalletStatus()
 	if !ok {
 		return "", err
 	}
@@ -1479,4 +1502,128 @@ func (wallet *Wallet) getCoinsType() uint32 {
 		return bipwallet.TypeYcc
 	}
 	return bipwallet.TypeBty
+}
+
+//ProcDumpPrivkeysFile 获取全部私钥保存到文件
+func (wallet *Wallet) ProcDumpPrivkeysFile(fileName, passwd string) error {
+	_, err := os.Stat(fileName)
+	if err == nil {
+		walletlog.Error("ProcDumpPrivkeysFile file already exists!", "fileName", fileName)
+		return types.ErrFileExists
+	}
+
+	wallet.mtx.Lock()
+	defer wallet.mtx.Unlock()
+
+	ok, err := wallet.checkWalletStatus()
+	if !ok {
+		return err
+	}
+
+	f, err := os.OpenFile(fileName, os.O_CREATE|os.O_APPEND|os.O_RDWR, 0666)
+	if err != nil {
+		walletlog.Error("ProcDumpPrivkeysFile create file error!", "fileName", fileName, "err", err)
+		return err
+	}
+	defer f.Close()
+
+	accounts, err := wallet.walletStore.GetAccountByPrefix("Account")
+	if err != nil || len(accounts) == 0 {
+		walletlog.Info("ProcDumpPrivkeysFile GetWalletAccounts", "GetAccountByPrefix:err", err)
+		return err
+	}
+
+	for i, acc := range accounts {
+		priv, err := wallet.getPrivKeyByAddr(acc.Addr)
+		if err != nil {
+			walletlog.Info("getPrivKeyByAddr", acc.Addr, err)
+			continue
+		}
+
+		privkey := common.ToHex(priv.Bytes())
+		content := privkey + "& *.prickey.+.label.* &" + acc.Label
+
+		Encrypter, err := AesgcmEncrypter([]byte(passwd), []byte(content))
+		if err != nil {
+			walletlog.Error("ProcDumpPrivkeysFile AesgcmEncrypter fileContent error!", "fileName", fileName, "err", err)
+			continue
+		}
+
+		f.WriteString(string(Encrypter))
+
+		if i < len(accounts)-1 {
+			f.WriteString("&ffzm.&**&")
+		}
+	}
+
+	return nil
+}
+
+// ProcImportPrivkeysFile 处理导入私钥
+//input:
+//type  struct {
+//	fileName string
+//  passwd   string
+//导入私钥，并且同时会导入交易
+func (wallet *Wallet) ProcImportPrivkeysFile(fileName, passwd string) error {
+	if _, err := os.Stat(fileName); os.IsNotExist(err) {
+		walletlog.Error("ProcImportPrivkeysFile file is not exist!", "fileName", fileName)
+		return err
+	}
+
+	wallet.mtx.Lock()
+	defer wallet.mtx.Unlock()
+
+	ok, err := wallet.checkWalletStatus()
+	if !ok {
+		return err
+	}
+
+	f, err := os.Open(fileName)
+	if err != nil {
+		walletlog.Error("ProcImportPrivkeysFile Open file error", "fileName", fileName, "err", err)
+		return err
+	}
+	defer f.Close()
+
+	fileContent, err := ioutil.ReadAll(f)
+	accounts := strings.Split(string(fileContent), "&ffzm.&**&")
+	for _, value := range accounts {
+		Decrypter, err := AesgcmDecrypter([]byte(passwd), []byte(value))
+		if err != nil {
+			walletlog.Error("ProcImportPrivkeysFile AesgcmDecrypter fileContent error", "fileName", fileName, "err", err)
+			return types.ErrVerifyOldpasswdFail
+		}
+
+		acc := strings.Split(string(Decrypter), "& *.prickey.+.label.* &")
+		if len(acc) != 2 {
+			walletlog.Error("ProcImportPrivkeysFile len(acc) != 2, File format error.", "Decrypter", string(Decrypter), "len", len(acc))
+			continue
+		}
+		privKey := acc[0]
+		label := acc[1]
+
+		//校验label是否已经被使用
+		Account, err := wallet.walletStore.GetAccountByLabel(label)
+		if Account != nil && err == nil {
+			walletlog.Info("ProcImportPrivKey Label is exist in wallet, label = label + _2!")
+			label = label + "_2"
+		}
+
+		PrivKey := &types.ReqWalletImportPrivkey{
+			Privkey: privKey,
+			Label:   label,
+		}
+
+		_, err = wallet.procImportPrivKey(PrivKey)
+		if err == types.ErrPrivkeyExist {
+			// 修改标签名称 是否需要?
+			// wallet.ProcWalletSetLabel()
+		} else if err != nil {
+			walletlog.Info("ProcImportPrivKey procImportPrivKey error")
+			return err
+		}
+	}
+
+	return nil
 }

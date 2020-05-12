@@ -17,9 +17,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func init() {
-	types.Init("local", nil)
-}
 func TestExportBlockProc(t *testing.T) {
 	mock33 := testnode.New("", nil)
 	blockchain := mock33.GetBlockChain()
@@ -29,8 +26,9 @@ func TestExportBlockProc(t *testing.T) {
 	curheight := blockchain.GetBlockHeight()
 	addblockheight := curheight + 1030
 	var err error
+	cfg := mock33.GetClient().GetConfig()
 	for {
-		_, err = addMainTx(mock33.GetGenesisKey(), mock33.GetAPI())
+		_, err = addMainTx(cfg, mock33.GetGenesisKey(), mock33.GetAPI())
 		require.NoError(t, err)
 
 		curheight = blockchain.GetBlockHeight()
@@ -46,7 +44,12 @@ func TestExportBlockProc(t *testing.T) {
 	title := mock33.GetCfg().Title
 	driver := mock33.GetCfg().BlockChain.Driver
 	dbPath := ""
-	blockchain.ExportBlock(title, dbPath, 0)
+
+	//异常测试
+	err = blockchain.ExportBlock(title, dbPath, 10000)
+	assert.Equal(t, err, types.ErrInvalidParam)
+
+	err = blockchain.ExportBlock(title, dbPath, 0)
 	require.NoError(t, err)
 	//读取文件头信息
 	db := dbm.NewDB(title, driver, dbPath, 4)
@@ -63,6 +66,14 @@ func TestExportBlockProc(t *testing.T) {
 	mock33.Close()
 
 	testImportBlockProc(t)
+
+	//异常测试
+	err = blockchain.ExportBlock(title, dbPath, -1)
+	assert.Equal(t, err, types.ErrInvalidParam)
+
+	err = blockchain.ExportBlock("test", dbPath, 0)
+	assert.Equal(t, err, types.ErrInvalidParam)
+
 	chainlog.Info("TestExportBlock end --------------------")
 }
 

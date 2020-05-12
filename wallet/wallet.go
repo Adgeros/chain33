@@ -91,14 +91,15 @@ func DisableLog() {
 }
 
 // New 创建一个钱包对象
-func New(cfg *types.Wallet, sub map[string][]byte) *Wallet {
+func New(cfg *types.Chain33Config) *Wallet {
+	mcfg := cfg.GetModuleConfig().Wallet
 	//walletStore
 	//accountdb = account.NewCoinsAccount()
-	walletStoreDB := dbm.NewDB("wallet", cfg.Driver, cfg.DbPath, cfg.DbCache)
+	walletStoreDB := dbm.NewDB("wallet", mcfg.Driver, mcfg.DbPath, mcfg.DbCache)
 	//walletStore := NewStore(walletStoreDB)
 	walletStore := newStore(walletStoreDB)
 	//minFee = cfg.MinFee
-	signType := types.GetSignType("", cfg.SignType)
+	signType := types.GetSignType("", mcfg.SignType)
 	if signType == types.Invalid {
 		signType = types.SECP256K1
 	}
@@ -108,20 +109,19 @@ func New(cfg *types.Wallet, sub map[string][]byte) *Wallet {
 		isWalletLocked:   1,
 		fatalFailureFlag: 0,
 		wg:               &sync.WaitGroup{},
-		FeeAmount:        walletStore.GetFeeAmount(cfg.MinFee),
+		FeeAmount:        walletStore.GetFeeAmount(mcfg.MinFee),
 		EncryptFlag:      walletStore.GetEncryptionFlag(),
 		done:             make(chan struct{}),
-		cfg:              cfg,
+		cfg:              mcfg,
 		rescanwg:         &sync.WaitGroup{},
 		initFlag:         0,
 		SignType:         signType,
-		minFee:           cfg.MinFee,
-		accountdb:        account.NewCoinsAccount(),
+		minFee:           mcfg.MinFee,
+		accountdb:        account.NewCoinsAccount(cfg),
 		accTokenMap:      make(map[string]*account.DB),
 	}
 	wallet.random = rand.New(rand.NewSource(types.Now().UnixNano()))
 	wcom.QueryData.SetThis("wallet", reflect.ValueOf(wallet))
-	wcom.Init(wallet, sub)
 	return wallet
 }
 
@@ -150,11 +150,6 @@ func (wallet *Wallet) GetAPI() client.QueueProtocolAPI {
 	return wallet.api
 }
 
-// GetMutex 获取钱包互斥量
-func (wallet *Wallet) GetMutex() *sync.Mutex {
-	return &wallet.mtx
-}
-
 // GetDBStore 获取数据库存储对象操作接口
 func (wallet *Wallet) GetDBStore() dbm.DB {
 	return wallet.walletStore.GetDB()
@@ -167,6 +162,9 @@ func (wallet *Wallet) GetSignType() int {
 
 // GetPassword 获取密码
 func (wallet *Wallet) GetPassword() string {
+	wallet.mtx.Lock()
+	defer wallet.mtx.Unlock()
+
 	return wallet.Password
 }
 
@@ -202,6 +200,8 @@ func (wallet *Wallet) GetWalletDone() chan struct{} {
 
 // GetLastHeader 获取最新高度信息
 func (wallet *Wallet) GetLastHeader() *types.Header {
+	wallet.mtx.Lock()
+	defer wallet.mtx.Unlock()
 	return wallet.lastHeader
 }
 
@@ -274,6 +274,9 @@ func (wallet *Wallet) SetQueueClient(cli queue.Client) {
 	if err != nil {
 		panic("SetQueueClient client.New err")
 	}
+	sub := cli.GetConfig().GetSubConfig().Wallet
+	// 置完client之后才做Init
+	wcom.Init(wallet, sub)
 	wallet.wg.Add(1)
 	go wallet.ProcRecvMsg()
 	for _, policy := range wcom.PolicyContainer {
@@ -297,6 +300,8 @@ func (wallet *Wallet) GetPrivKeyByAddr(addr string) (crypto.PrivKey, error) {
 	if !wallet.isInited() {
 		return nil, types.ErrNotInited
 	}
+	wallet.mtx.Lock()
+	defer wallet.mtx.Unlock()
 
 	return wallet.getPrivKeyByAddr(addr)
 }
@@ -348,8 +353,16 @@ func (wallet *Wallet) AddrInWallet(addr string) bool {
 
 //IsTransfer 检测钱包是否允许转账到指定地址，判断钱包锁和是否有seed以及挖矿锁
 func (wallet *Wallet) IsTransfer(addr string) (bool, error) {
+	wallet.mtx.Lock()
+	defer wallet.mtx.Unlock()
 
-	ok, err := wallet.CheckWalletStatus()
+	return wallet.isTransfer(addr)
+}
+
+//isTransfer 检测钱包是否允许转账到指定地址，判断钱包锁和是否有seed以及挖矿锁
+func (wallet *Wallet) isTransfer(addr string) (bool, error) {
+
+	ok, err := wallet.checkWalletStatus()
 	//钱包已经解锁或者错误是ErrSaveSeedFirst直接返回
 	if ok || err == types.ErrSaveSeedFirst {
 		return ok, err
@@ -369,6 +382,15 @@ func (wallet *Wallet) CheckWalletStatus() (bool, error) {
 	if !wallet.isInited() {
 		return false, types.ErrNotInited
 	}
+
+	wallet.mtx.Lock()
+	defer wallet.mtx.Unlock()
+
+	return wallet.checkWalletStatus()
+}
+
+//CheckWalletStatus 钱包状态检测函数,解锁状态，seed是否已保存
+func (wallet *Wallet) checkWalletStatus() (bool, error) {
 	// 钱包锁定，ticket已经解锁，返回只解锁了ticket的错误
 	if wallet.IsWalletLocked() && !wallet.isTicketLocked() {
 		return false, types.ErrOnlyTicketUnLocked
@@ -423,12 +445,10 @@ func (wallet *Wallet) GetWalletStatus() *types.WalletStatus {
 //	Addr      string
 //	TimeStamp string
 //获取钱包的所有账户地址列表，
-func (wallet *Wallet) GetWalletAccounts() ([]*types.WalletAccountStore, error) {
+func (wallet *Wallet) getWalletAccounts() ([]*types.WalletAccountStore, error) {
 	if !wallet.isInited() {
 		return nil, types.ErrNotInited
 	}
-	wallet.mtx.Lock()
-	defer wallet.mtx.Unlock()
 
 	//通过Account前缀查找获取钱包中的所有账户信息
 	WalletAccStores, err := wallet.walletStore.GetAccountByPrefix("Account")
@@ -437,6 +457,17 @@ func (wallet *Wallet) GetWalletAccounts() ([]*types.WalletAccountStore, error) {
 		return nil, err
 	}
 	return WalletAccStores, err
+}
+
+//GetWalletAccounts: 获取账号列表
+func (wallet *Wallet) GetWalletAccounts() ([]*types.WalletAccountStore, error) {
+	if !wallet.isInited() {
+		return nil, types.ErrNotInited
+	}
+	wallet.mtx.Lock()
+	defer wallet.mtx.Unlock()
+
+	return wallet.getWalletAccounts()
 }
 
 func (wallet *Wallet) updateLastHeader(block *types.BlockDetail, mode int) error {

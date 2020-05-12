@@ -152,6 +152,15 @@ type TransactionDetail struct {
 	Fromaddr   string             `json:"fromAddr"`
 	ActionName string             `json:"actionName"`
 	Assets     []*Asset           `json:"assets"`
+	TxProofs   []*TxProof         `json:"txProofs"`
+	FullHash   string             `json:"fullHash"`
+}
+
+// TxProof :
+type TxProof struct {
+	Proofs   []string `json:"proofs"`
+	Index    uint32   `json:"index"`
+	RootHash string   `json:"rootHash"`
 }
 
 // ReplyTxInfos reply tx infos
@@ -251,13 +260,9 @@ type ReqHashes struct {
 
 // ReqWalletTransactionList require wallet transaction list
 type ReqWalletTransactionList struct {
-	FromTx          string `json:"fromTx"`
-	Count           int32  `json:"count"`
-	Direction       int32  `json:"direction"`
-	Mode            int32  `json:"mode,omitempty"`
-	SendRecvPrivacy int32  `json:"sendRecvPrivacy,omitempty"`
-	Address         string `json:"address,omitempty"`
-	TokenName       string `json:"tokenname,omitempty"`
+	FromTx    string `json:"fromTx"`
+	Count     int32  `json:"count"`
+	Direction int32  `json:"direction"`
 }
 
 // WalletTxDetails wallet tx details
@@ -317,13 +322,6 @@ type NodeNetinfo struct {
 	Inbounds     int32  `json:"inbounds"`
 }
 
-// ReplyPrivacyPkPair   reply privekey pubkey pair
-type ReplyPrivacyPkPair struct {
-	ShowSuccessful bool   `json:"showSuccessful,omitempty"`
-	ViewPub        string `json:"viewPub,omitempty"`
-	SpendPub       string `json:"spendPub,omitempty"`
-}
-
 // ReplyCacheTxList reply cache tx list
 type ReplyCacheTxList struct {
 	Txs []*Transaction `json:"txs,omitempty"`
@@ -339,6 +337,20 @@ type TimeStatus struct {
 // ReplyBlkSeqs reply block sequences
 type ReplyBlkSeqs struct {
 	BlkSeqInfos []*ReplyBlkSeq `json:"blkseqInfos"`
+}
+
+// Sequence for callback
+type Sequence struct {
+	Hash     string `json:"Hash"`
+	Type     int64  `json:"Type"`
+	Sequence int64  `json:"sequence"`
+	Height   int64  `json:"height"`
+}
+
+// ReplyAddCallback Reply AddCallback
+type ReplyAddCallback struct {
+	Reply
+	Seqs []*Sequence `json:"seqs"`
 }
 
 // ReplyBlkSeq reply block sequece

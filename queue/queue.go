@@ -12,6 +12,7 @@ import (
 	"os/signal"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"time"
 
 	"github.com/33cn/chain33/types"
@@ -59,6 +60,8 @@ type Queue interface {
 	Start()
 	Client() Client
 	Name() string
+	SetConfig(cfg *types.Chain33Config)
+	GetConfig() *types.Chain33Config
 }
 
 type queue struct {
@@ -69,6 +72,7 @@ type queue struct {
 	callback  chan *Message
 	isClose   int32
 	name      string
+	cfg       *types.Chain33Config
 }
 
 // New new queue struct
@@ -84,7 +88,7 @@ func New(name string) Queue {
 		for {
 			select {
 			case <-q.done:
-				fmt.Println("closing chain33 callback")
+				qlog.Info("closing chain33 callback")
 				return
 			case msg := <-q.callback:
 				if msg.callback != nil {
@@ -96,6 +100,22 @@ func New(name string) Queue {
 	return q
 }
 
+// GetConfig return the queue Chain33Config
+func (q *queue) GetConfig() *types.Chain33Config {
+	return q.cfg
+}
+
+// Name return the queue name
+func (q *queue) SetConfig(cfg *types.Chain33Config) {
+	if cfg == nil {
+		panic("set config is nil")
+	}
+	if q.cfg != nil {
+		panic("do not reset queue config")
+	}
+	q.cfg = cfg
+}
+
 // Name return the queue name
 func (q *queue) Name() string {
 	return q.name
@@ -104,19 +124,19 @@ func (q *queue) Name() string {
 // Start 开始运行消息队列
 func (q *queue) Start() {
 	c := make(chan os.Signal, 1)
-	signal.Notify(c, os.Interrupt)
+	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
 	// Block until a signal is received.
 	select {
 	case <-q.done:
-		fmt.Println("closing chain33 done")
+		qlog.Info("closing chain33 done")
 		//atomic.StoreInt32(&q.isClose, 1)
 		break
 	case <-q.interrupt:
-		fmt.Println("closing chain33")
+		qlog.Info("closing chain33")
 		//atomic.StoreInt32(&q.isClose, 1)
 		break
 	case s := <-c:
-		fmt.Println("Got signal:", s)
+		qlog.Info("Got signal:", s)
 		//atomic.StoreInt32(&q.isClose, 1)
 		break
 	}

@@ -24,6 +24,7 @@ type Config struct {
 	Health         *HealthCheck `protobuf:"bytes,16,opt,name=health" json:"health,omitempty"`
 	CoinSymbol     string       `protobuf:"bytes,17,opt,name=coinSymbol" json:"coinSymbol,omitempty"`
 	EnableParaFork bool         `protobuf:"bytes,18,opt,name=enableParaFork" json:"enableParaFork,omitempty"`
+	Metrics        *Metrics     `protobuf:"bytes,19,opt,name=metrics" json:"metrics,omitempty"`
 }
 
 // ForkList fork列表配置
@@ -61,14 +62,17 @@ type Mempool struct {
 	Name string `protobuf:"bytes,1,opt,name=name" json:"name,omitempty"`
 	// mempool缓存容量大小，默认10240
 	PoolCacheSize int64 `protobuf:"varint,2,opt,name=poolCacheSize" json:"poolCacheSize,omitempty"`
-	// 最小得交易手续费用，这个没有默认值，必填，一般是100000
-	MinTxFee    int64 `protobuf:"varint,3,opt,name=minTxFee" json:"minTxFee,omitempty"`
-	MaxTxFee    int64 `protobuf:"varint,3,opt,name=maxTxFee" json:"maxTxFee,omitempty"`
-	ForceAccept bool  `protobuf:"varint,4,opt,name=forceAccept" json:"forceAccept,omitempty"`
+	ForceAccept   bool  `protobuf:"varint,4,opt,name=forceAccept" json:"forceAccept,omitempty"`
 	// 每个账户在mempool中得最大交易数量，默认100
 	MaxTxNumPerAccount int64 `protobuf:"varint,5,opt,name=maxTxNumPerAccount" json:"maxTxNumPerAccount,omitempty"`
 	MaxTxLast          int64 `protobuf:"varint,6,opt,name=maxTxLast" json:"maxTxLast,omitempty"`
 	IsLevelFee         bool  `protobuf:"varint,7,opt,name=isLevelFee" json:"isLevelFee,omitempty"`
+	// 最小单元交易费，这个没有默认值，必填，一般是100000
+	MinTxFeeRate int64 `protobuf:"varint,8,opt,name=minTxFeeRate" json:"minTxFeeRate,omitempty"`
+	// 最大单元交易费, 默认1e7
+	MaxTxFeeRate int64 `protobuf:"varint,9,opt,name=maxTxFeeRate" json:"maxTxFeeRate,omitempty"`
+	// 单笔最大交易费, 默认1e9
+	MaxTxFee int64 `protobuf:"varint,10,opt,name=maxTxFee" json:"maxTxFee,omitempty"`
 }
 
 // Consensus 配置
@@ -85,6 +89,8 @@ type Consensus struct {
 	ForceMining bool   `protobuf:"varint,6,opt,name=forceMining" json:"forceMining,omitempty"`
 	// 配置挖矿的合约名单
 	MinerExecs []string `protobuf:"bytes,7,rep,name=minerExecs" json:"minerExecs,omitempty"`
+	// 最优区块选择
+	EnableBestBlockCmp bool `protobuf:"bytes,8,rep,name=enableBestBlockCmp" json:"enableBestBlockCmp,omitempty"`
 }
 
 // Wallet 配置
@@ -149,13 +155,13 @@ type BlockChain struct {
 	// 回退是否保存区块
 	RollbackSave bool `protobuf:"varint,16,opt,name=rollbackSave" json:"rollbackSave,omitempty"`
 	// 最新区块上链超时时间，单位秒。
-	OnChainTimeout int64 `protobuf:"varint,16,opt,name=onChainTimeout" json:"onChainTimeout,omitempty"`
+	OnChainTimeout int64 `protobuf:"varint,17,opt,name=onChainTimeout" json:"onChainTimeout,omitempty"`
+	// 使能精简localdb
+	EnableReduceLocaldb bool `protobuf:"varint,18,opt,name=enableReduceLocaldb" json:"enableReduceLocaldb,omitempty"`
 }
 
 // P2P 配置
 type P2P struct {
-	// P2P服务监听端口号
-	Port int32 `protobuf:"varint,1,opt,name=port" json:"port,omitempty"`
 	// 使用的数据库类型
 	Driver string `protobuf:"bytes,2,opt,name=driver" json:"driver,omitempty"`
 	// 数据库文件目录
@@ -164,31 +170,12 @@ type P2P struct {
 	DbCache int32 `protobuf:"varint,4,opt,name=dbCache" json:"dbCache,omitempty"`
 	// GRPC请求日志文件
 	GrpcLogFile string `protobuf:"bytes,5,opt,name=grpcLogFile" json:"grpcLogFile,omitempty"`
-	// 是否为种子节点
-	IsSeed bool `protobuf:"varint,6,opt,name=isSeed" json:"isSeed,omitempty"`
-	// 是否作为服务端，对外提供服务
-	ServerStart bool `protobuf:"varint,7,opt,name=serverStart" json:"serverStart,omitempty"`
-	// 种子节点，格式为ip:port，多个节点以逗号分隔，如seeds=
-	Seeds []string `protobuf:"bytes,8,rep,name=seeds" json:"seeds,omitempty"`
 	// 是否启动P2P服务
-	Enable       bool  `protobuf:"varint,9,opt,name=enable" json:"enable,omitempty"`
-	MsgCacheSize int32 `protobuf:"varint,10,opt,name=msgCacheSize" json:"msgCacheSize,omitempty"`
-	// 是否使用内置的种子节点
-	InnerSeedEnable bool `protobuf:"varint,14,opt,name=innerSeedEnable" json:"innerSeedEnable,omitempty"`
-	// 最多的接入节点个数
-	InnerBounds int32 `protobuf:"varint,15,opt,name=innerBounds" json:"innerBounds,omitempty"`
-	// 是否使用Github获取种子节点
-	UseGithub bool `protobuf:"varint,16,opt,name=useGithub" json:"useGithub,omitempty"`
+	Enable bool `protobuf:"varint,9,opt,name=enable" json:"enable,omitempty"`
 	//是否等待Pid
 	WaitPid bool `protobuf:"varint,17,opt,name=waitPid" json:"waitPid,omitempty"`
-	//交易开始采用哈希广播的ttl
-	LightTxTTL int32 `protobuf:"varint,18,opt,name=lightTxTTL" json:"lightTxTTL,omitempty"`
-	// 最大传播ttl, ttl达到该值将停止继续向外发送
-	MaxTTL int32 `protobuf:"varint,19,opt,name=maxTTL" json:"maxTTL,omitempty"`
-	// p2p网络频道,用于区分主网/测试网/其他网络
-	Channel int32 `protobuf:"varint,20,opt,name=channel" json:"channel,omitempty"`
-	//固定连接节点，只连接配置项seeds中的节点
-	FixedSeed bool `protobuf:"varint,21,opt,name=fixedSeed" json:"fixedSeed,omitempty"`
+	//指定p2p类型, 支持gossip, dht
+	Types []string `protobuf:"bytes,23,rep,name=types" json:"types,omitempty"`
 }
 
 // RPC 配置
@@ -219,12 +206,6 @@ type RPC struct {
 
 // Exec 配置
 type Exec struct {
-	// 执行器执行所需最小费用,低于Mempool和Wallet设置的MinFee,在minExecFee = 0 的情况下，isFree = true才会生效
-	MinExecFee int64 `protobuf:"varint,1,opt,name=minExecFee" json:"minExecFee,omitempty"`
-	// 执行器执行所需最大费用,这个值必须大于mempool 和 wallet 的值
-	MaxExecFee int64 `protobuf:"varint,1,opt,name=maxExecFee" json:"maxExecFee,omitempty"`
-	// 执行器执行是否免费
-	IsFree bool `protobuf:"varint,2,opt,name=isFree" json:"isFree,omitempty"`
 	// 是否开启stat插件
 	EnableStat bool `protobuf:"varint,3,opt,name=enableStat" json:"enableStat,omitempty"`
 	// 是否开启MVCC插件
@@ -245,4 +226,16 @@ type HealthCheck struct {
 	ListenAddr     string `protobuf:"bytes,1,opt,name=listenAddr" json:"listenAddr,omitempty"`
 	CheckInterval  uint32 `protobuf:"varint,2,opt,name=checkInterval" json:"checkInterval,omitempty"`
 	UnSyncMaxTimes uint32 `protobuf:"varint,3,opt,name=unSyncMaxTimes" json:"unSyncMaxTimes,omitempty"`
+}
+
+// Metrics:相关测量配置信息
+type Metrics struct {
+	EnableMetrics bool   `protobuf:"varint,1,opt,name=enableMetrics" json:"enableMetrics,omitempty"`
+	DataEmitMode  string `protobuf:"bytes,2,opt,name=dataEmitMode" json:"dataEmitMode,omitempty"`
+	Duration      int64  `protobuf:"varint,3,opt,name=duration" json:"duration,omitempty"`
+	URL           string `protobuf:"bytes,4,opt,name=url" json:"url,omitempty"`
+	DatabaseName  string `protobuf:"bytes,5,opt,name=databaseName" json:"databaseName,omitempty"`
+	Username      string `protobuf:"bytes,6,opt,name=username" json:"username,omitempty"`
+	Password      string `protobuf:"bytes,7,opt,name=password" json:"password,omitempty"`
+	Namespace     string `protobuf:"bytes,8,opt,name=namespace" json:"namespace,omitempty"`
 }
