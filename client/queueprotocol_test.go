@@ -208,19 +208,19 @@ func testGetBlockSequences(t *testing.T, api client.QueueProtocolAPI) {
 }
 
 func testAddSeqCallBack(t *testing.T, api client.QueueProtocolAPI) {
-	res, err := api.AddSeqCallBack(&types.BlockSeqCB{})
+	res, err := api.AddPushSubscribe(&types.PushSubscribeReq{})
 	assert.Nil(t, err)
-	assert.Equal(t, &types.ReplyAddSeqCallback{}, res)
+	assert.Equal(t, &types.ReplySubscribePush{}, res)
 }
 
 func testListSeqCallBack(t *testing.T, api client.QueueProtocolAPI) {
-	res, err := api.ListSeqCallBack()
+	res, err := api.ListPushes()
 	assert.Nil(t, err)
-	assert.Equal(t, &types.BlockSeqCBs{}, res)
+	assert.Equal(t, &types.PushSubscribes{}, res)
 }
 
 func testGetSeqCallBackLastNum(t *testing.T, api client.QueueProtocolAPI) {
-	res, err := api.GetSeqCallBackLastNum(&types.ReqString{})
+	res, err := api.GetPushSeqLastNum(&types.ReqString{})
 	assert.Nil(t, err)
 	assert.Equal(t, &types.Int64{}, res)
 }
@@ -354,7 +354,7 @@ func testLocalList(t *testing.T, api client.QueueProtocolAPI) {
 }
 
 func testLocalTransaction(t *testing.T, api client.QueueProtocolAPI) {
-	txid, err := api.LocalNew(nil)
+	txid, err := api.LocalNew(false)
 	assert.Nil(t, err)
 	assert.Equal(t, txid.Data, int64(9999))
 	err = api.LocalBegin(txid)

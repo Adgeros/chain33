@@ -20,7 +20,7 @@ import (
 func TestExportBlockProc(t *testing.T) {
 	mock33 := testnode.New("", nil)
 	blockchain := mock33.GetBlockChain()
-	chainlog.Info("TestExportBlockProc begin --------------------")
+	chainlog.Debug("TestExportBlockProc begin --------------------")
 
 	//构造1030个区块
 	curheight := blockchain.GetBlockHeight()
@@ -74,14 +74,14 @@ func TestExportBlockProc(t *testing.T) {
 	err = blockchain.ExportBlock("test", dbPath, 0)
 	assert.Equal(t, err, types.ErrInvalidParam)
 
-	chainlog.Info("TestExportBlock end --------------------")
+	chainlog.Debug("TestExportBlock end --------------------")
 }
 
 func testImportBlockProc(t *testing.T) {
 	mock33 := testnode.New("", nil)
 	defer mock33.Close()
 	blockchain := mock33.GetBlockChain()
-	chainlog.Info("TestImportBlockProc begin --------------------")
+	chainlog.Debug("TestImportBlockProc begin --------------------")
 	title := mock33.GetCfg().Title
 	dbPath := ""
 	driver := mock33.GetCfg().BlockChain.Driver
@@ -98,10 +98,11 @@ func testImportBlockProc(t *testing.T) {
 	err = blockchain.ImportBlock(title, dbPath)
 	require.NoError(t, err)
 	curHeader, err := blockchain.ProcGetLastHeaderMsg()
+	require.NoError(t, err)
 	assert.Equal(t, curHeader.Height, endBlock.GetHeight())
 	assert.Equal(t, curHeader.GetHash(), endBlock.GetHash())
 	file := title + ".db"
 	os.RemoveAll(file)
 
-	chainlog.Info("TestImportBlockProc end --------------------")
+	chainlog.Debug("TestImportBlockProc end --------------------")
 }

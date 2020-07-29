@@ -23,7 +23,6 @@ import (
 //var
 var (
 	//cache 存贮的block个数
-	MaxSeqCB             int64 = 20
 	zeroHash             [32]byte
 	InitBlockNum         int64 = 10240 //节点刚启动时从db向index和bestchain缓存中添加的blocknode数，和blockNodeCacheLimit保持一致
 	chainlog                   = log.New("module", "blockchain")
@@ -31,19 +30,20 @@ var (
 )
 
 const maxFutureBlocks = 256
+const defaultChunkBlockNum = 1
 
 //BlockChain 区块链结构体
 type BlockChain struct {
 	client queue.Client
 	cache  *BlockCache
 	// 永久存储数据到db中
-	blockStore  *BlockStore
-	pushseq     *pushseq
-	pushservice *PushService1
+	blockStore *BlockStore
+	push       *Push
 	//cache  缓存block方便快速查询
-	cfg          *types.BlockChain
-	syncTask     *Task
-	downLoadTask *Task
+	cfg             *types.BlockChain
+	syncTask        *Task
+	downLoadTask    *Task
+	chunkRecordTask *Task
 
 	query *Query
 
@@ -94,22 +94,23 @@ type BlockChain struct {
 	futureBlocks *lru.Cache // future blocks are broadcast later processing
 
 	//downLoad block info
-	downLoadInfo       *DownLoadInfo
-	isFastDownloadSync bool //当本节点落后很多时，可以先下载区块到db，启动单独的goroutine去执行block
+	downLoadInfo *DownLoadInfo
+	downloadMode int //当本节点落后很多时，可以先下载区块到db，启动单独的goroutine去执行block
 
 	isRecordBlockSequence bool //是否记录add或者del block的序列，方便blcokchain的恢复通过记录的序列表
+	enablePushSubscribe   bool //是否允许推送订阅
 	isParaChain           bool //是否是平行链。平行链需要记录Sequence信息
 	isStrongConsistency   bool
 	//lock
-	synBlocklock        sync.Mutex
-	peerMaxBlklock      sync.Mutex
-	castlock            sync.Mutex
-	ntpClockSynclock    sync.Mutex
-	faultpeerlock       sync.Mutex
-	bestpeerlock        sync.Mutex
-	downLoadlock        sync.Mutex
-	fastDownLoadSynLock sync.Mutex
-	isNtpClockSync      bool //ntp时间是否同步
+	synBlocklock     sync.Mutex
+	peerMaxBlklock   sync.Mutex
+	castlock         sync.Mutex
+	ntpClockSynclock sync.Mutex
+	faultpeerlock    sync.Mutex
+	bestpeerlock     sync.Mutex
+	downLoadlock     sync.Mutex
+	downLoadModeLock sync.Mutex
+	isNtpClockSync   bool //ntp时间是否同步
 
 	//cfg
 	MaxFetchBlockNum int64 //一次最多申请获取block个数
@@ -120,6 +121,9 @@ type BlockChain struct {
 
 	blockOnChain   *BlockOnChain
 	onChainTimeout int64
+
+	//记录当前已经连续的最高高度
+	maxSerialChunkNum int64
 }
 
 //New new
@@ -133,19 +137,24 @@ func New(cfg *types.Chain33Config) *BlockChain {
 	if mcfg.DefCacheSize > 0 {
 		defCacheSize = mcfg.DefCacheSize
 	}
+	if atomic.LoadInt64(&mcfg.ChunkblockNum) == 0 {
+		atomic.StoreInt64(&mcfg.ChunkblockNum, defaultChunkBlockNum)
+	}
 	blockchain := &BlockChain{
 		cache:              NewBlockCache(cfg, defCacheSize),
 		DefCacheSize:       defCacheSize,
 		rcvLastBlockHeight: -1,
 		synBlockHeight:     -1,
+		maxSerialChunkNum:  -1,
 		peerList:           nil,
 		cfg:                mcfg,
 		recvwg:             &sync.WaitGroup{},
 		tickerwg:           &sync.WaitGroup{},
 		reducewg:           &sync.WaitGroup{},
 
-		syncTask:     newTask(300 * time.Second), //考虑到区块交易多时执行耗时，需要延长task任务的超时时间
-		downLoadTask: newTask(300 * time.Second),
+		syncTask:        newTask(300 * time.Second), //考虑到区块交易多时执行耗时，需要延长task任务的超时时间
+		downLoadTask:    newTask(300 * time.Second),
+		chunkRecordTask: newTask(120 * time.Second),
 
 		quit:                make(chan struct{}),
 		synblock:            make(chan struct{}, 1),
@@ -162,7 +171,7 @@ func New(cfg *types.Chain33Config) *BlockChain {
 		isNtpClockSync:      true,
 		MaxFetchBlockNum:    128 * 6, //一次最多申请获取block个数
 		TimeoutSeconds:      2,
-		isFastDownloadSync:  true,
+		downloadMode:        fastDownLoadMode,
 		blockOnChain:        &BlockOnChain{},
 		onChainTimeout:      0,
 	}
@@ -186,6 +195,7 @@ func (chain *BlockChain) initConfig(cfg *types.Chain33Config) {
 	chain.blockSynInterVal = time.Duration(chain.TimeoutSeconds)
 	chain.isStrongConsistency = mcfg.IsStrongConsistency
 	chain.isRecordBlockSequence = mcfg.IsRecordBlockSequence
+	chain.enablePushSubscribe = mcfg.EnablePushSubscribe
 	chain.isParaChain = mcfg.IsParaChain
 	cfg.S("quickIndex", mcfg.EnableTxQuickIndex)
 	cfg.S("reduceLocaldb", mcfg.EnableReduceLocaldb)
@@ -221,6 +231,11 @@ func (chain *BlockChain) Close() {
 	chainlog.Info("blockchain wait for reducewg quit")
 	chain.reducewg.Wait()
 
+	if chain.push != nil {
+		chainlog.Info("blockchain wait for push quit")
+		chain.push.Close()
+	}
+
 	//关闭数据库
 	chain.blockStore.db.Close()
 	chainlog.Info("blockchain module closed")
@@ -236,16 +251,19 @@ func (chain *BlockChain) SetQueueClient(client queue.Client) {
 	chain.blockStore = blockStore
 	stateHash := chain.getStateHash()
 	chain.query = NewQuery(blockStoreDB, chain.client, stateHash)
+	if chain.enablePushSubscribe && chain.isRecordBlockSequence {
+		chain.push = newpush(chain.blockStore, chain.blockStore, chain.client.GetConfig())
+		chainlog.Info("chain push is setup")
+	}
 
-	chain.pushservice = newPushService(chain.blockStore, chain.blockStore)
-	chain.pushseq = newpushseq(chain.blockStore, chain.pushservice.pushStore)
 	//startTime
 	chain.startTime = types.Now()
+	// 获取当前最大chunk连续高度
+	chain.maxSerialChunkNum = chain.blockStore.GetMaxSerialChunkNum()
 
 	//recv 消息的处理，共识模块需要获取lastblock从数据库中
 	chain.recvwg.Add(1)
 	//初始化blockchian模块
-	chain.pushseq.init()
 	chain.InitBlockChain()
 	go chain.ProcRecvMsg()
 }
@@ -301,6 +319,12 @@ func (chain *BlockChain) InitBlockChain() {
 		// 定时处理futureblock
 		go chain.UpdateRoutine()
 	}
+
+	if !chain.cfg.DisableShard {
+		chain.tickerwg.Add(1)
+		go chain.chunkProcessRoutine()
+	}
+
 	//初始化默认DownLoadInfo
 	chain.DefaultDownLoadInfo()
 }
@@ -331,7 +355,8 @@ func (chain *BlockChain) SendAddBlockEvent(block *types.BlockDetail) (err error)
 
 	chainlog.Debug("SendAddBlockEvent -->>mempool")
 	msg := chain.client.NewMessage("mempool", types.EventAddBlock, block)
-	Err := chain.client.Send(msg, false)
+	//此处采用同步发送模式，主要是为了消息在消息队列内部走高速通道，尽快被mempool模块处理
+	Err := chain.client.Send(msg, true)
 	if Err != nil {
 		chainlog.Error("SendAddBlockEvent -->>mempool", "err", Err)
 	}
@@ -475,10 +500,11 @@ func (chain *BlockChain) InitIndexAndBestView() {
 	for ; height <= curheight; height++ {
 		header, err := chain.blockStore.GetBlockHeaderByHeight(height)
 		if header == nil {
+			chainlog.Error("InitIndexAndBestView GetBlockHeaderByHeight", "height", height, "err", err)
 			//开始升级localdb到2.0.0版本时需要兼容旧的存储方式
 			header, err = chain.blockStore.getBlockHeaderByHeightOld(height)
 			if header == nil {
-				chainlog.Error("InitIndexAndBestView GetBlockHeaderByHeight", "height", height, "err", err)
+				chainlog.Error("InitIndexAndBestView getBlockHeaderByHeightOld", "height", height, "err", err)
 				panic("InitIndexAndBestView fail!")
 			}
 		}

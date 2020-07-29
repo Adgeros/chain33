@@ -75,7 +75,7 @@ const (
 	EventCheckTx                 = 81
 	EventReceiptCheckTx          = 82
 	EventReplyQuery              = 84
-	EventAddBlockSeqCB           = 85
+	EventSubscribePush           = 85
 	EventFetchBlockHeaders       = 86
 	EventAddBlockHeaders         = 87
 	EventReplyWalletStatus       = 89
@@ -116,8 +116,8 @@ const (
 	EventLocalPrefixCount        = 128
 	EventStoreList               = 130
 	EventStoreListReply          = 131
-	EventListBlockSeqCB          = 132
-	EventGetSeqCBLastNum         = 133
+	EventListPushes              = 132
+	EventGetPushLastNum          = 133
 	EventGetBlockBySeq           = 134
 
 	EventLocalBegin    = 135
@@ -156,7 +156,29 @@ const (
 	//通过区块高度列表+title获取平行链交易
 	EventGetParaTxByTitleAndHeight = 310
 	//比较当前区块和新广播的区块最优区块
-	EventCmpBestBlock = 311
+	EventCmpBestBlock       = 311
+	EventReplySubscribePush = 312
+
+	// 通知其它节点进行数据归档存储
+	EventNotifyStoreChunk = 313
+	// 获取chunkBlock数据
+	EventGetChunkBlock = 314
+
+	// 添加addChunkBlock
+	EventAddChunkBlock = 315
+	// 获取chunkBody数据
+	EventGetChunkBlockBody = 316
+	// 获取ChunkRecord
+	EventGetChunkRecord = 317
+	// 添加ChunkRecord
+	EventAddChunkRecord = 318
+
+	//p2p 其他接收事件
+	EventSubTopic       = 350
+	EventPubTopicMsg    = 351
+	EventFetchTopics    = 352
+	EventRemoveTopic    = 353
+	EventReceiveSubData = 355
 )
 
 var eventName = map[int]string{
@@ -227,6 +249,7 @@ var eventName = map[int]string{
 	81:  "EventCheckTx",
 	82:  "EventReceiptCheckTx",
 	84:  "EventReplyQuery",
+	85:  "EventSubscribePush",
 	86:  "EventFetchBlockHeaders",
 	87:  "EventAddBlockHeaders",
 	89:  "EventReplyWalletStatus",
@@ -268,6 +291,8 @@ var eventName = map[int]string{
 	//todo: 这个可能后面会删除
 	EventStoreList:      "EventStoreList",
 	EventStoreListReply: "EventStoreListReply",
+	EventListPushes:     "EventListPushes",
+	EventGetPushLastNum: "EventGetPushLastNum",
 	// Token
 	EventBlockChainQuery: "EventBlockChainQuery",
 	EventConsensusQuery:  "EventConsensusQuery",
@@ -297,4 +322,16 @@ var eventName = map[int]string{
 	EventGetParaTxByTitleAndHeight:  "EventGetParaTxByTitleAndHeight",
 	EventCmpBestBlock:               "EventCmpBestBlock",
 	EventUpgrade:                    "EventUpgrade",
+	EventReplySubscribePush:         "EventReplySubscribePush",
+	EventNotifyStoreChunk:           "EventNotifyStoreChunk",
+	EventGetChunkBlock:              "EventGetChunkBlock",
+	EventAddChunkBlock:              "EventAddChunkBlock",
+	EventGetChunkBlockBody:          "EventGetChunkBlockBody",
+	EventGetChunkRecord:             "EventGetChunkRecord",
+	EventAddChunkRecord:             "EventAddChunkRecord",
+	EventSubTopic:                   "EventSubTopic",
+	EventPubTopicMsg:                "EventPubTopicMsg",
+	EventFetchTopics:                "EventFetchTopics",
+	EventRemoveTopic:                "EventRemoveTopic",
+	EventReceiveSubData:             "EventReceiveSubData",
 }

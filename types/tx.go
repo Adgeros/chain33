@@ -455,15 +455,6 @@ func (tx *Transaction) GetTxGroup() (*Transactions, error) {
 	return nil, nil
 }
 
-//Hash 交易的hash不包含header的值，引入tx group的概念后，做了修改
-func (tx *Transaction) Hash() []byte {
-	copytx := tx.Clone()
-	copytx.Signature = nil
-	copytx.Header = nil
-	data := Encode(copytx)
-	return common.Sha256(data)
-}
-
 //Size 交易大小
 func (tx *Transaction) Size() int {
 	return Size(tx)
@@ -472,6 +463,7 @@ func (tx *Transaction) Size() int {
 //Sign 交易签名
 func (tx *Transaction) Sign(ty int32, priv crypto.PrivKey) {
 	tx.Signature = nil
+	tx.UnsetCacheHash()
 	data := Encode(tx)
 	pub := priv.PubKey()
 	sign := priv.Sign(data)
@@ -491,6 +483,7 @@ func (tx *Transaction) CheckSign() bool {
 func (tx *Transaction) checkSign() bool {
 	copytx := *tx
 	copytx.Signature = nil
+	copytx.UnsetCacheHash()
 	data := Encode(&copytx)
 	if tx.GetSignature() == nil {
 		return false
@@ -511,15 +504,15 @@ func (tx *Transaction) Check(cfg *Chain33Config, height, minfee, maxFee int64) e
 }
 
 func (tx *Transaction) check(cfg *Chain33Config, height, minfee, maxFee int64) error {
-	txSize := Size(tx)
-	if txSize > int(MaxTxSize) {
-		return ErrTxMsgSizeTooBig
-	}
 	if minfee == 0 {
 		return nil
 	}
+	// 获取当前交易最小交易费
+	realFee, err := tx.GetRealFee(minfee)
+	if err != nil {
+		return err
+	}
 	// 检查交易费是否小于最低值
-	realFee := int64(txSize/1000+1) * minfee
 	if tx.Fee < realFee {
 		return ErrTxFeeTooLow
 	}
@@ -554,6 +547,13 @@ func (tx *Transaction) GetRealFee(minFee int64) (int64, error) {
 	//如果签名为空，那么加上签名的空间
 	if tx.Signature == nil {
 		txSize += 300
+	}
+	// hash cache 不作为fee大小计算, byte数组经过proto编码会有2个字节的标志长度
+	if tx.HashCache != nil {
+		txSize -= len(tx.HashCache) + 2
+	}
+	if tx.FullHashCache != nil {
+		txSize -= len(tx.FullHashCache) + 2
 	}
 	if txSize > int(MaxTxSize) {
 		return 0, ErrTxMsgSizeTooBig
@@ -772,7 +772,7 @@ func CalcTxShortHash(hash []byte) string {
 	return ""
 }
 
-//TransactionSort:对主链以及平行链交易分类
+//TransactionSort 对主链以及平行链交易分类
 //构造一个map用于临时存储各个子链的交易, 按照title分类，主链交易的title设置成main
 //并对map按照title进行排序，不然每次遍历map顺序会不一致
 func TransactionSort(rawtxs []*Transaction) []*Transaction {
@@ -806,10 +806,41 @@ func TransactionSort(rawtxs []*Transaction) []*Transaction {
 	return txs.GetTxs()
 }
 
+//Hash 交易的hash不包含header的值，引入tx group的概念后，做了修改
+func (tx *Transaction) Hash() []byte {
+	if tx.HashCache != nil {
+		return tx.HashCache
+	}
+	copytx := cloneTx(tx)
+	copytx.Signature = nil
+	copytx.Header = nil
+	copytx.FullHashCache = nil
+	data := Encode(copytx)
+	return common.Sha256(data)
+}
+
 //FullHash 交易的fullhash包含交易的签名信息，
 //这里做了clone 主要是因为 Encode 可能会修改 tx 的 Size 字段，可能会引起data race
 func (tx *Transaction) FullHash() []byte {
+
+	if tx.FullHashCache != nil {
+		return tx.FullHashCache
+	}
 	copytx := tx.Clone()
+	copytx.HashCache = nil
 	data := Encode(copytx)
 	return common.Sha256(data)
+}
+
+// UnsetCacheHash 清空hash缓存，交易向外部系统发送时调用
+func (tx *Transaction) UnsetCacheHash() {
+	tx.HashCache = nil
+	tx.FullHashCache = nil
+}
+
+// ReCalcCacheHash 重新计算 hash缓存， 通常交易首次进入系统时调用
+func (tx *Transaction) ReCalcCacheHash() {
+	tx.UnsetCacheHash()
+	tx.HashCache = tx.Hash()
+	tx.FullHashCache = tx.FullHash()
 }

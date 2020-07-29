@@ -68,14 +68,14 @@ func (chain *BlockChain) ProcGetTransactionByHashes(hashs [][]byte) (TxDetails *
 	var txDetails types.TransactionDetails
 	for _, txhash := range hashs {
 		txresult, err := chain.GetTxResultFromDb(txhash)
+		var txDetail types.TransactionDetail
 		if err == nil && txresult != nil {
-			var txDetail types.TransactionDetail
 			setTxDetailFromTxResult(&txDetail, txresult)
 
 			//chainlog.Debug("ProcGetTransactionByHashes", "txDetail", txDetail.String())
 			txDetails.Txs = append(txDetails.Txs, &txDetail)
 		} else {
-			txDetails.Txs = append(txDetails.Txs, nil)
+			txDetails.Txs = append(txDetails.Txs, &txDetail) //
 			chainlog.Debug("ProcGetTransactionByHashes hash no exit", "txhash", common.ToHex(txhash))
 		}
 	}
@@ -193,6 +193,8 @@ func (chain *BlockChain) ProcQueryTxMsg(txhash []byte) (proof *types.Transaction
 func setTxDetailFromTxResult(TransactionDetail *types.TransactionDetail, txresult *types.TxResult) {
 	TransactionDetail.Receipt = txresult.Receiptdate
 	TransactionDetail.Tx = txresult.GetTx()
+	//缓存哈希置空
+	TransactionDetail.Tx.UnsetCacheHash()
 	TransactionDetail.Height = txresult.GetHeight()
 	TransactionDetail.Index = int64(txresult.GetIndex())
 	TransactionDetail.Blocktime = txresult.GetBlocktime()
@@ -269,7 +271,6 @@ func getTxFullHashProofs(Txs []*types.Transaction, index int32) [][]byte {
 	}
 
 	proofs := merkle.GetMerkleBranch(leaves, uint32(index))
-	chainlog.Debug("getTxProofs", "index", index, "proofs", proofs)
 
 	return proofs
 }

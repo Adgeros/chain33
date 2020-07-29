@@ -172,6 +172,7 @@ func CheckTxDup(client queue.Client, txs []*types.TransactionCache, height int64
 		return nil, err
 	}
 	dupTxList, err := client.Wait(hashList)
+
 	if err != nil {
 		return nil, err
 	}
@@ -179,7 +180,7 @@ func CheckTxDup(client queue.Client, txs []*types.TransactionCache, height int64
 	dupMap := make(map[string]bool)
 	for _, hash := range dupTxs {
 		dupMap[string(hash)] = true
-		log.Debug("CheckTxDup", "TxDuphash", common.ToHex(hash))
+		log.Error("CheckTxDup", "TxDuphash", common.ToHex(hash))
 	}
 	for _, tx := range txs {
 		hash := tx.Hash()
@@ -188,6 +189,7 @@ func CheckTxDup(client queue.Client, txs []*types.TransactionCache, height int64
 		}
 		transactions = append(transactions, tx)
 	}
+	client.FreeMessage(hashList, dupTxList)
 	return transactions, nil
 }
 

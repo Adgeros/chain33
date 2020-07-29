@@ -14,7 +14,8 @@ import (
 func (wallet *Wallet) ProcRecvMsg() {
 	defer wallet.wg.Done()
 	for msg := range wallet.client.Recv() {
-		walletlog.Debug("wallet recv", "msg", types.GetEventName(int(msg.Ty)), "Id", msg.ID)
+		id := msg.ID
+		walletlog.Debug("wallet recv", "msg", types.GetEventName(int(id)), "Id", id)
 		beg := types.Now()
 		reply, err := wallet.ExecWallet(msg)
 		if err != nil {
@@ -23,7 +24,7 @@ func (wallet *Wallet) ProcRecvMsg() {
 		} else {
 			msg.Reply(wallet.api.NewMessage("", 0, reply))
 		}
-		walletlog.Debug("end process", "msg.id", msg.ID, "cost", types.Since(beg))
+		walletlog.Debug("end process", "msg.id", id, "cost", types.Since(beg))
 	}
 }
 
@@ -309,7 +310,7 @@ func (wallet *Wallet) On_DumpPrivkeysFile(req *types.ReqPrivkeysFile) (types.Mes
 	return reply, err
 }
 
-// On_WalletImportPrivkeys 响应导入多个私钥
+//On_ImportPrivkeysFile 响应导入多个私钥
 func (wallet *Wallet) On_ImportPrivkeysFile(req *types.ReqPrivkeysFile) (types.Message, error) {
 	reply := &types.Reply{
 		IsOk: true,

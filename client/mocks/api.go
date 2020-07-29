@@ -14,21 +14,21 @@ type QueueProtocolAPI struct {
 	mock.Mock
 }
 
-// AddSeqCallBack provides a mock function with given fields: param
-func (_m *QueueProtocolAPI) AddSeqCallBack(param *types.BlockSeqCB) (*types.ReplyAddSeqCallback, error) {
+// AddPushSubscribe provides a mock function with given fields: param
+func (_m *QueueProtocolAPI) AddPushSubscribe(param *types.PushSubscribeReq) (*types.ReplySubscribePush, error) {
 	ret := _m.Called(param)
 
-	var r0 *types.ReplyAddSeqCallback
-	if rf, ok := ret.Get(0).(func(*types.BlockSeqCB) *types.ReplyAddSeqCallback); ok {
+	var r0 *types.ReplySubscribePush
+	if rf, ok := ret.Get(0).(func(*types.PushSubscribeReq) *types.ReplySubscribePush); ok {
 		r0 = rf(param)
 	} else {
 		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(*types.ReplyAddSeqCallback)
+			r0 = ret.Get(0).(*types.ReplySubscribePush)
 		}
 	}
 
 	var r1 error
-	if rf, ok := ret.Get(1).(func(*types.BlockSeqCB) error); ok {
+	if rf, ok := ret.Get(1).(func(*types.PushSubscribeReq) error); ok {
 		r1 = rf(param)
 	} else {
 		r1 = ret.Error(1)
@@ -541,8 +541,8 @@ func (_m *QueueProtocolAPI) GetProperFee(req *types.ReqProperFee) (*types.ReplyP
 	return r0, r1
 }
 
-// GetSeqCallBackLastNum provides a mock function with given fields: param
-func (_m *QueueProtocolAPI) GetSeqCallBackLastNum(param *types.ReqString) (*types.Int64, error) {
+// GetPushSeqLastNum provides a mock function with given fields: param
+func (_m *QueueProtocolAPI) GetPushSeqLastNum(param *types.ReqString) (*types.Int64, error) {
 	ret := _m.Called(param)
 
 	var r0 *types.Int64
@@ -702,16 +702,16 @@ func (_m *QueueProtocolAPI) IsSync() (*types.Reply, error) {
 	return r0, r1
 }
 
-// ListSeqCallBack provides a mock function with given fields:
-func (_m *QueueProtocolAPI) ListSeqCallBack() (*types.BlockSeqCBs, error) {
+// ListPushes provides a mock function with given fields:
+func (_m *QueueProtocolAPI) ListPushes() (*types.PushSubscribes, error) {
 	ret := _m.Called()
 
-	var r0 *types.BlockSeqCBs
-	if rf, ok := ret.Get(0).(func() *types.BlockSeqCBs); ok {
+	var r0 *types.PushSubscribes
+	if rf, ok := ret.Get(0).(func() *types.PushSubscribes); ok {
 		r0 = rf()
 	} else {
 		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(*types.BlockSeqCBs)
+			r0 = ret.Get(0).(*types.PushSubscribes)
 		}
 	}
 
@@ -836,13 +836,13 @@ func (_m *QueueProtocolAPI) LocalList(param *types.LocalDBList) (*types.LocalRep
 	return r0, r1
 }
 
-// LocalNew provides a mock function with given fields: param
-func (_m *QueueProtocolAPI) LocalNew(param *types.ReqNil) (*types.Int64, error) {
-	ret := _m.Called(param)
+// LocalNew provides a mock function with given fields: readOnly
+func (_m *QueueProtocolAPI) LocalNew(readOnly bool) (*types.Int64, error) {
+	ret := _m.Called(readOnly)
 
 	var r0 *types.Int64
-	if rf, ok := ret.Get(0).(func(*types.ReqNil) *types.Int64); ok {
-		r0 = rf(param)
+	if rf, ok := ret.Get(0).(func(bool) *types.Int64); ok {
+		r0 = rf(readOnly)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).(*types.Int64)
@@ -850,8 +850,8 @@ func (_m *QueueProtocolAPI) LocalNew(param *types.ReqNil) (*types.Int64, error) 
 	}
 
 	var r1 error
-	if rf, ok := ret.Get(1).(func(*types.ReqNil) error); ok {
-		r1 = rf(param)
+	if rf, ok := ret.Get(1).(func(bool) error); ok {
+		r1 = rf(readOnly)
 	} else {
 		r1 = ret.Error(1)
 	}

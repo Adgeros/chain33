@@ -55,6 +55,9 @@ func (chain *BlockChain) ProcRecvMsg() {
 			go chain.processMsg(msg, reqnum, chain.getAddrOverview)
 		case types.EventGetBlockHash: //GetBlockHash
 			go chain.processMsg(msg, reqnum, chain.getBlockHash)
+			//订阅指定类型的交易回执
+		case types.EventSubscribePush:
+			go chain.processMsg(msg, reqnum, chain.subscribePush)
 		case types.EventAddBlockHeaders:
 			go chain.processMsg(msg, reqnum, chain.addBlockHeaders)
 		case types.EventGetLastBlock:
@@ -77,12 +80,10 @@ func (chain *BlockChain) ProcRecvMsg() {
 			go chain.processMsg(msg, reqnum, chain.addParaChainBlockDetail)
 		case types.EventGetSeqByHash:
 			go chain.processMsg(msg, reqnum, chain.getSeqByHash)
-		case types.EventAddBlockSeqCB:
-			go chain.processMsg(msg, reqnum, chain.addBlockSeqCB)
-		case types.EventListBlockSeqCB:
-			go chain.processMsg(msg, reqnum, chain.listBlockSeqCB)
-		case types.EventGetSeqCBLastNum:
-			go chain.processMsg(msg, reqnum, chain.getSeqCBLastNum)
+		case types.EventListPushes:
+			go chain.processMsg(msg, reqnum, chain.listPush)
+		case types.EventGetPushLastNum:
+			go chain.processMsg(msg, reqnum, chain.getPushLastNum)
 		case types.EventGetLastBlockMainSequence:
 			go chain.processMsg(msg, reqnum, chain.GetLastBlockMainSequence)
 		case types.EventGetMainSeqByHash:
@@ -103,7 +104,18 @@ func (chain *BlockChain) ProcRecvMsg() {
 			//通过区块高度列表+title获取平行链交易
 		case types.EventGetParaTxByTitleAndHeight:
 			go chain.processMsg(msg, reqnum, chain.getParaTxByTitleAndHeight)
-
+			// 获取chunk record
+		case types.EventGetChunkRecord:
+			go chain.processMsg(msg, reqnum, chain.getChunkRecord)
+			// 获取chunk record
+		case types.EventAddChunkRecord:
+			go chain.processMsg(msg, reqnum, chain.addChunkRecord)
+			// 从localdb中获取Chunk BlockBody
+		case types.EventGetChunkBlockBody:
+			go chain.processMsg(msg, reqnum, chain.getChunkBlockBody)
+			// 用于chunk同步区块
+		case types.EventAddChunkBlock:
+			go chain.processMsg(msg, reqnum, chain.addChunkBlock)
 		default:
 			go chain.processMsg(msg, reqnum, chain.unknowMsg)
 		}
@@ -114,38 +126,21 @@ func (chain *BlockChain) unknowMsg(msg *queue.Message) {
 	chainlog.Warn("ProcRecvMsg unknow msg", "msgtype", msg.Ty)
 }
 
-func (chain *BlockChain) addBlockSeqCB(msg *queue.Message) {
-	reply := &types.ReplyAddSeqCallback{
-		IsOk: true,
-	}
-	cb := (msg.Data).(*types.BlockSeqCB)
-	sequences, err := chain.ProcAddBlockSeqCB(cb)
+func (chain *BlockChain) listPush(msg *queue.Message) {
+	cbs, err := chain.ProcListPush()
 	if err != nil {
-		reply.IsOk = false
-		reply.Msg = []byte(err.Error())
-		reply.Seqs = sequences
-		msg.Reply(chain.client.NewMessage("rpc", types.EventAddBlockSeqCB, reply))
+		chainlog.Error("listPush", "err", err.Error())
+		msg.Reply(chain.client.NewMessage("rpc", types.EventListPushes, err))
 		return
 	}
-
-	msg.Reply(chain.client.NewMessage("rpc", types.EventAddBlockSeqCB, reply))
+	msg.Reply(chain.client.NewMessage("rpc", types.EventListPushes, cbs))
 }
-
-func (chain *BlockChain) listBlockSeqCB(msg *queue.Message) {
-	cbs, err := chain.ProcListBlockSeqCB()
-	if err != nil {
-		chainlog.Error("listBlockSeqCB", "err", err.Error())
-		msg.Reply(chain.client.NewMessage("rpc", types.EventListBlockSeqCB, err))
-		return
-	}
-	msg.Reply(chain.client.NewMessage("rpc", types.EventListBlockSeqCB, cbs))
-}
-func (chain *BlockChain) getSeqCBLastNum(msg *queue.Message) {
+func (chain *BlockChain) getPushLastNum(msg *queue.Message) {
 	data := (msg.Data).(*types.ReqString)
 
-	num := chain.ProcGetSeqCBLastNum(data.Data)
+	num, _ := chain.ProcGetLastPushSeq(data.Data)
 	lastNum := &types.Int64{Data: num}
-	msg.Reply(chain.client.NewMessage("rpc", types.EventGetSeqCBLastNum, lastNum))
+	msg.Reply(chain.client.NewMessage("rpc", types.EventGetPushLastNum, lastNum))
 }
 
 func (chain *BlockChain) queryTx(msg *queue.Message) {
@@ -176,7 +171,7 @@ func (chain *BlockChain) addBlock(msg *queue.Message) {
 	reply.IsOk = true
 	blockpid := msg.Data.(*types.BlockPid)
 	//chainlog.Error("addBlock", "height", blockpid.Block.Height, "pid", blockpid.Pid)
-	if chain.GetDownloadSyncStatus() {
+	if chain.GetDownloadSyncStatus() == fastDownLoadMode {
 		err := chain.WriteBlockToDbTemp(blockpid.Block, true)
 		if err != nil {
 			chainlog.Error("WriteBlockToDbTemp", "height", blockpid.Block.Height, "err", err.Error())
@@ -251,7 +246,7 @@ func (chain *BlockChain) getLastHeader(msg *queue.Message) {
 func (chain *BlockChain) addBlockDetail(msg *queue.Message) {
 	blockDetail := msg.Data.(*types.BlockDetail)
 	Height := blockDetail.Block.Height
-	chainlog.Info("EventAddBlockDetail", "height", blockDetail.Block.Height, "parent", common.ToHex(blockDetail.Block.ParentHash))
+	chainlog.Debug("EventAddBlockDetail", "height", blockDetail.Block.Height, "parent", common.ToHex(blockDetail.Block.ParentHash))
 	blockDetail, err := chain.ProcAddBlockMsg(true, blockDetail, "self")
 	if err != nil {
 		chainlog.Error("addBlockDetail", "err", err.Error())
@@ -396,13 +391,15 @@ type funcProcess func(msg *queue.Message)
 
 func (chain *BlockChain) processMsg(msg *queue.Message, reqnum chan struct{}, cb funcProcess) {
 	beg := types.Now()
+	//NOTE: 由于部分msg做了内存回收处理，业务逻辑处理后不能对msg进行引用访问， 相关数据提前保存
+	ty := msg.Ty
 	defer func() {
 		<-reqnum
 		atomic.AddInt32(&chain.runcount, -1)
-		chainlog.Debug("process", "cost", types.Since(beg), "msg", types.GetEventName(int(msg.Ty)))
+		chainlog.Debug("process", "cost", types.Since(beg), "msg", types.GetEventName(int(ty)))
 		if r := recover(); r != nil {
-			chainlog.Error("panic error", "err", r)
-			msg.Reply(chain.client.NewMessage("", msg.Ty, fmt.Errorf("%s:%v", types.ErrExecPanic.Error(), r)))
+			chainlog.Error("blockchain panic error", "err", r)
+			msg.Reply(chain.client.NewMessage("", ty, fmt.Errorf("%s:%v", types.ErrExecPanic.Error(), r)))
 			return
 		}
 	}()
@@ -448,7 +445,7 @@ func (chain *BlockChain) getBlockBySeq(msg *queue.Message) {
 	req := &types.ReqBlocks{Start: seq.Data, End: seq.Data, IsDetail: false, Pid: []string{}}
 	sequences, err := chain.GetBlockSequences(req)
 	if err != nil {
-		chainlog.Error("getBlockBySeq", "seq err", err.Error())
+		chainlog.Error("getBlockBySeq", "seqUpdateChan err", err.Error())
 		msg.Reply(chain.client.NewMessage("rpc", types.EventGetBlockBySeq, err))
 		return
 	}
@@ -644,4 +641,85 @@ func (chain *BlockChain) getParaTxByTitleAndHeight(msg *queue.Message) {
 		return
 	}
 	msg.Reply(chain.client.NewMessage("", types.EventReplyParaTxByTitle, reply))
+}
+
+// getChunkRecord // 获取当前chunk record
+func (chain *BlockChain) getChunkRecord(msg *queue.Message) {
+	req := (msg.Data).(*types.ReqChunkRecords)
+	reply, err := chain.GetChunkRecord(req)
+	if err != nil {
+		chainlog.Error("getChunkRecord", "req", req, "err", err.Error())
+		msg.Reply(chain.client.NewMessage("", types.EventGetChunkRecord, &types.Reply{IsOk: false, Msg: []byte(err.Error())}))
+		return
+	}
+	chainlog.Debug("getChunkRecord", "start", req.Start, "end", req.End)
+	msg.Reply(chain.client.NewMessage("", types.EventGetChunkRecord, reply))
+}
+
+// addChunkRecord // 添加chunk record
+func (chain *BlockChain) addChunkRecord(msg *queue.Message) {
+	req := (msg.Data).(*types.ChunkRecords)
+	chain.AddChunkRecord(req)
+	for _, info := range req.Infos {
+		chain.chunkRecordTask.Done(info.ChunkNum)
+		chainlog.Debug("addChunkRecord", "chunkNum", info.ChunkNum, "chunkHash", common.ToHex(info.ChunkHash))
+	}
+}
+
+// getChunkBlockBody // 获取chunk BlockBody
+func (chain *BlockChain) getChunkBlockBody(msg *queue.Message) {
+	req := (msg.Data).(*types.ChunkInfoMsg)
+	reply, err := chain.GetChunkBlockBody(req)
+	if err != nil {
+		msg.Reply(chain.client.NewMessage("", types.EventGetChunkBlockBody, &types.Reply{IsOk: false, Msg: []byte(err.Error())}))
+		return
+	}
+	chainlog.Debug("getChunkBlockBody", "start", req.Start, "end", req.End, "chunkHash", common.ToHex(req.ChunkHash))
+	msg.Reply(chain.client.NewMessage("", types.EventGetChunkBlockBody, reply))
+}
+
+// addChunkBlock // 添加chunk Block
+func (chain *BlockChain) addChunkBlock(msg *queue.Message) {
+	blocks := (msg.Data).(*types.Blocks)
+	if blocks == nil || len(blocks.Items) == 0 {
+		str := "blocks is nil"
+		chainlog.Error("addChunkBlock", "err", str)
+		return
+	}
+
+	if chain.GetDownloadSyncStatus() == chunkDownLoadMode {
+		for _, blk := range blocks.Items {
+			chain.WriteBlockToDbTemp(blk, true)
+			//downLoadTask 运行时设置对应的blockdone
+			if chain.downLoadTask.InProgress() {
+				chain.downLoadTask.Done(blk.Height)
+			}
+		}
+	} else {
+		for _, blk := range blocks.Items {
+			_, err := chain.ProcAddBlockMsg(false, &types.BlockDetail{Block: blk}, "-self") //这里认为非自己节点
+			if err != nil {
+				chainlog.Error("addChunkBlock ProcAddBlockMsg", "height", blk.Height, "err", err.Error())
+				return
+			}
+		}
+	}
+	chainlog.Debug("addChunkBlock", "start", blocks.Items[0].Height, "end", blocks.Items[len(blocks.Items)-1].Height)
+}
+
+func (chain *BlockChain) subscribePush(msg *queue.Message) {
+	reply := &types.ReplySubscribePush{
+		IsOk: true,
+		Msg:  "Succeed",
+	}
+	subReq := (msg.Data).(*types.PushSubscribeReq)
+	err := chain.procSubscribePush(subReq)
+	if err != nil {
+		reply.IsOk = false
+		reply.Msg = err.Error()
+		msg.Reply(chain.client.NewMessage("rpc", types.EventReplySubscribePush, reply))
+		return
+	}
+
+	msg.Reply(chain.client.NewMessage("rpc", types.EventReplySubscribePush, reply))
 }

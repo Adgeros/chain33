@@ -1,20 +1,20 @@
+// Package manage p2p manage
 package manage
 
 import (
+	"context"
 	"fmt"
 	"sync"
 	"time"
 
-	p2pty "github.com/33cn/chain33/system/p2p/dht/types"
-
 	"github.com/33cn/chain33/common/log/log15"
 	"github.com/33cn/chain33/system/p2p/dht/net"
+	p2pty "github.com/33cn/chain33/system/p2p/dht/types"
 	core "github.com/libp2p/go-libp2p-core"
 	"github.com/libp2p/go-libp2p-core/metrics"
 	"github.com/libp2p/go-libp2p-core/network"
 	"github.com/libp2p/go-libp2p-core/peer"
 	"github.com/libp2p/go-libp2p-core/peerstore"
-	//multiaddr "github.com/multiformats/go-multiaddr"
 )
 
 var (
@@ -22,11 +22,11 @@ var (
 )
 
 const (
-	MinBounds    = 15 //最少连接节点数，包含连接被连接
-	MaxBounds    = 50 //最大连接数包含连接被连接
-	MaxOutBounds = 30 //对外连接的最大节点数量
+	maxBounds    = 50 //最大连接数包含连接被连接
+	maxOutBounds = 30 //对外连接的最大节点数量
 )
 
+// ConnManager p2p connection manager
 type ConnManager struct {
 	neighborStore    sync.Map
 	host             core.Host
@@ -37,6 +37,7 @@ type ConnManager struct {
 	Done             chan struct{}
 }
 
+// NewConnManager new connection manager
 func NewConnManager(host core.Host, discovery *net.Discovery, tracker *metrics.BandwidthCounter, cfg *p2pty.P2PSubConfig) *ConnManager {
 	connM := &ConnManager{}
 	connM.pstore = host.Peerstore()
@@ -49,6 +50,7 @@ func NewConnManager(host core.Host, discovery *net.Discovery, tracker *metrics.B
 
 }
 
+// Close close connection manager
 func (s *ConnManager) Close() {
 
 	defer func() {
@@ -60,10 +62,12 @@ func (s *ConnManager) Close() {
 	close(s.Done)
 }
 
-func (s *ConnManager) RecoredLatency(pid peer.ID, ttl time.Duration) {
+// RecordLatency record latency
+func (s *ConnManager) RecordLatency(pid peer.ID, ttl time.Duration) {
 	s.pstore.RecordLatency(pid, ttl)
 }
 
+// GetLatencyByPeer get peer latency by id
 func (s *ConnManager) GetLatencyByPeer(pids []peer.ID) map[string]time.Duration {
 	var tds = make(map[string]time.Duration)
 	for _, pid := range pids {
@@ -74,11 +78,15 @@ func (s *ConnManager) GetLatencyByPeer(pids []peer.ID) map[string]time.Duration 
 	return tds
 }
 
+// MonitorAllPeers monitory all peers
 func (s *ConnManager) MonitorAllPeers(seeds []string, host core.Host) {
 	bootstraps := net.ConvertPeers(s.cfg.BootStraps)
+	ticker1 := time.NewTicker(time.Minute)
+	ticker2 := time.NewTicker(time.Minute * 10)
+	ticker3 := time.NewTicker(time.Hour * 6)
 	for {
 		select {
-		case <-time.After(time.Minute):
+		case <-ticker1.C:
 			var LatencyInfo = fmt.Sprintln("--------------时延--------------------")
 			peers := s.FetchConnPeers()
 			bandByPeer := s.bandwidthTracker.GetBandwidthByPeer()
@@ -97,96 +105,93 @@ func (s *ConnManager) MonitorAllPeers(seeds []string, host core.Host) {
 						stat.RateOut,
 						stat.TotalIn,
 						stat.TotalOut)
-
 				}
-
 			}
-			log.Info(LatencyInfo)
+			log.Debug(LatencyInfo)
 			insize, outsize := s.BoundSize()
 			trackerInfo += fmt.Sprintln("peerstoreNum:", len(s.pstore.Peers()), ",conn num:", insize+outsize, "inbound num", insize, "outbound num", outsize,
 				"dht size", s.discovery.RoutingTableSize())
 			trackerInfo += fmt.Sprintln("-------------------------------------")
-			log.Info(trackerInfo)
+			log.Debug(trackerInfo)
 
-		case <-time.After(time.Minute * 10):
+		case <-ticker2.C:
 			//处理当前连接的节点问题
-
-			if s.OutboundSize() <= MaxOutBounds {
+			if s.OutboundSize() > maxOutBounds || s.Size() > maxBounds {
 				continue
 			}
-			nearestPeers := s.convertArrToMap(s.FetchNearestPeers())
-			//close from seed
-			for _, pid := range s.OutBounds() {
-				if _, ok := bootstraps[pid.Pretty()]; ok {
-					// 判断是否是最近nearest的30个节点
-					if _, ok := nearestPeers[pid.Pretty()]; !ok {
-						s.host.Network().ClosePeer(pid)
-						if s.OutboundSize() <= MinBounds {
-							break
-						}
-					}
+			//如果连接的节点数较少，尝试连接内置的和配置的种子节点
+			//无须担心重新连接的问题，底层会自己判断是否已经连接了此节点，如果已经连接了就会忽略
+			for _, seed := range net.ConvertPeers(seeds) {
+				_ = s.host.Connect(context.Background(), *seed)
+			}
 
-				}
+			for _, node := range bootstraps {
+				_ = s.host.Connect(context.Background(), *node)
+			}
+
+		//debug
+		case <-ticker3.C:
+			for _, pid := range s.discovery.ListPeers() {
+				log.Info("debug routing table", "pid", pid, "maddrs", s.host.Peerstore().Addrs(pid))
 			}
 
 		case <-s.Done:
 			return
-
 		}
 	}
 }
 
+// AddNeighbors add neighbors by peer info
 func (s *ConnManager) AddNeighbors(pr *peer.AddrInfo) {
 	s.neighborStore.Store(pr.ID.Pretty(), pr)
 }
 
+// IsNeighbors check is neighbors by id
 func (s *ConnManager) IsNeighbors(pid peer.ID) bool {
 	_, ok := s.neighborStore.Load(pid.Pretty())
 	return ok
 }
 
+// Delete delete peer by id
 func (s *ConnManager) Delete(pid peer.ID) {
 	s.discovery.Remove(pid)
 }
 
+// Get get peer add info by id
 func (s *ConnManager) Get(pid peer.ID) *peer.AddrInfo {
-
 	peerinfo := s.discovery.FindLocalPeer(pid)
 	return &peerinfo
 }
 
+// FetchNearestPeers fetch nearest peer ids
 func (s *ConnManager) FetchNearestPeers() []peer.ID {
 	return s.discovery.FindNearestPeers(s.host.ID(), 50)
-
 }
 
+// Size connections size
 func (s *ConnManager) Size() int {
-
 	return len(s.host.Network().Conns())
-
 }
 
-//FetchConnPeers 获取连接的Peer's ID 这个连接包含被连接的peer以及主动连接的peer.
+// FetchConnPeers 获取连接的Peer's ID 这个连接包含被连接的peer以及主动连接的peer.
 func (s *ConnManager) FetchConnPeers() []peer.ID {
 	var peers = make(map[string]peer.ID)
-	for _, conn := range s.host.Network().Conns() {
-		//peers=append(peers,conn.RemotePeer())
-		peers[conn.RemotePeer().Pretty()] = conn.RemotePeer()
-		log.Debug("FetchConnPeers", "ssssstream Num", len(conn.GetStreams()), "pid", conn.RemotePeer().Pretty())
-		if len(peers) >= MaxBounds {
-			break
+
+	nearpeers := s.FetchNearestPeers()
+	for _, peer := range nearpeers {
+		if _, ok := peers[peer.Pretty()]; !ok {
+			peers[peer.Pretty()] = peer
+		}
+		if len(peers) >= maxBounds {
+			return s.convertMapToArr(peers)
 		}
 	}
 
-	if len(peers) < MinBounds {
-		nearpeers := s.FetchNearestPeers()
-		for _, peer := range nearpeers {
-			if _, ok := peers[peer.Pretty()]; !ok {
-				peers[peer.Pretty()] = peer
-			}
-			if len(peers) >= MaxOutBounds {
-				break
-			}
+	for _, conn := range s.host.Network().Conns() {
+		peers[conn.RemotePeer().Pretty()] = conn.RemotePeer()
+		//log.Debug("FetchConnPeers", "stream Num", len(conn.GetStreams()), "pid", conn.RemotePeer().Pretty())
+		if len(peers) >= maxBounds {
+			break
 		}
 
 	}
@@ -202,15 +207,7 @@ func (s *ConnManager) convertMapToArr(in map[string]peer.ID) []peer.ID {
 	return pids
 }
 
-func (s *ConnManager) convertArrToMap(in []peer.ID) map[string]peer.ID {
-	var m = make(map[string]peer.ID)
-	for _, pid := range in {
-		m[pid.Pretty()] = pid
-	}
-	return m
-}
-
-//检查连接的节点ID是被连接的还是主动连接的
+// CheckDiraction 检查连接的节点ID是被连接的还是主动连接的
 func (s *ConnManager) CheckDiraction(pid peer.ID) network.Direction {
 	for _, conn := range s.host.Network().ConnsToPeer(pid) {
 		return conn.Stat().Direction
@@ -218,6 +215,7 @@ func (s *ConnManager) CheckDiraction(pid peer.ID) network.Direction {
 	return network.DirUnknown
 }
 
+// InboundSize get inbound conn size
 func (s *ConnManager) InboundSize() int {
 	var inboundSize int
 	for _, con := range s.host.Network().Conns() {
@@ -229,6 +227,7 @@ func (s *ConnManager) InboundSize() int {
 
 }
 
+// OutboundSize get outbound conn size
 func (s *ConnManager) OutboundSize() int {
 	var outboundSize int
 	for _, con := range s.host.Network().Conns() {
@@ -240,6 +239,7 @@ func (s *ConnManager) OutboundSize() int {
 
 }
 
+// OutBounds get out bounds conn peers
 func (s *ConnManager) OutBounds() []peer.ID {
 	var pid []peer.ID
 	for _, con := range s.host.Network().Conns() {
@@ -251,6 +251,7 @@ func (s *ConnManager) OutBounds() []peer.ID {
 	return pid
 }
 
+// InBounds get in bounds conn peers
 func (s *ConnManager) InBounds() []peer.ID {
 	var pid []peer.ID
 	for _, con := range s.host.Network().Conns() {
@@ -262,6 +263,8 @@ func (s *ConnManager) InBounds() []peer.ID {
 	return pid
 
 }
+
+// BoundSize get in out conn bound size
 func (s *ConnManager) BoundSize() (insize int, outsize int) {
 
 	for _, con := range s.host.Network().Conns() {

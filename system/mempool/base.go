@@ -131,7 +131,7 @@ func (mem *Mempool) filterTxList(count int64, dupMap map[string]bool, isAll bool
 	types.AssertConfig(mem.client)
 	cfg := mem.client.GetConfig()
 	mem.cache.Walk(int(count), func(tx *Item) bool {
-		if dupMap != nil {
+		if len(dupMap) > 0 {
 			if _, ok := dupMap[string(tx.Value.Hash())]; ok {
 				return true
 			}
@@ -220,14 +220,14 @@ func (mem *Mempool) GetLatestTx() []*types.Transaction {
 	return mem.cache.GetLatestTx()
 }
 
-//  GetTotalCacheBytes 获取缓存交易的总占用空间
+// GetTotalCacheBytes 获取缓存交易的总占用空间
 func (mem *Mempool) GetTotalCacheBytes() int64 {
 	mem.proxyMtx.Lock()
 	defer mem.proxyMtx.Unlock()
 	return mem.cache.qcache.GetCacheBytes()
 }
 
-// pollLastHeader在初始化后循环获取LastHeader，直到获取成功后，返回
+// pollLastHeader 在初始化后循环获取LastHeader，直到获取成功后，返回
 func (mem *Mempool) pollLastHeader() {
 	defer mem.wg.Done()
 	defer func() {

@@ -780,6 +780,21 @@ func testSignRawTx(t *testing.T, wallet *Wallet) {
 	_, err = wallet.GetAPI().ExecWalletFunc("wallet", "SignRawTx", unsigned)
 	assert.Equal(t, err, types.ErrNoPrivKeyOrAddr)
 
+	unsigned.Privkey = "0x"
+	_, err = wallet.GetAPI().ExecWalletFunc("wallet", "SignRawTx", unsigned)
+	assert.Equal(t, err, types.ErrPrivateKeyLen)
+
+	unsigned.Privkey = "0x5Z"
+	_, err = wallet.GetAPI().ExecWalletFunc("wallet", "SignRawTx", unsigned)
+	assert.NotNil(t, err)
+
+	signTy := wallet.SignType
+	wallet.SignType = 0xff
+	unsigned.Privkey = "0x55"
+	_, err = wallet.GetAPI().ExecWalletFunc("wallet", "SignRawTx", unsigned)
+	assert.NotNil(t, err)
+	wallet.SignType = signTy
+
 	println("TestSignRawTx end")
 	println("--------------------------")
 }
@@ -848,7 +863,10 @@ func testWallet(t *testing.T, wallet *Wallet) {
 	wallet.IsClose()
 	wallet.AddWaitGroup(1)
 	wallet.WaitGroupDone()
-	wallet.RegisterMineStatusReporter(nil)
+	report := &WalletReport{}
+	err = wallet.RegisterMineStatusReporter(report)
+	assert.NoError(t, err)
+
 }
 
 func testSendTx(t *testing.T, wallet *Wallet) {
@@ -905,10 +923,10 @@ func testCreateNewAccountByIndex(t *testing.T, wallet *Wallet) {
 	//通过pubkey换算成addr然后获取账户信息
 	privkeybyte, err := common.FromHex(pubkey.Data)
 	require.NoError(t, err)
-	pub, err := bipwallet.PrivkeyToPub(bipwallet.TypeBty, privkeybyte)
+	pub, err := bipwallet.PrivkeyToPub(wallet.CoinType, uint32(wallet.SignType), privkeybyte)
 	require.NoError(t, err)
 
-	addr, err := bipwallet.PubToAddress(bipwallet.TypeBty, pub)
+	addr, err := bipwallet.PubToAddress(pub)
 	require.NoError(t, err)
 	if addr != "" {
 		//测试ProcGetAccountList函数
@@ -934,9 +952,9 @@ func testCreateNewAccountByIndex(t *testing.T, wallet *Wallet) {
 	//通过pubkey换算成addr然后获取账户信息
 	privkeybyte, err = common.FromHex(pubkey.Data)
 	require.NoError(t, err)
-	pub2, err := bipwallet.PrivkeyToPub(bipwallet.TypeBty, privkeybyte)
+	pub2, err := bipwallet.PrivkeyToPub(wallet.CoinType, uint32(wallet.SignType), privkeybyte)
 	require.NoError(t, err)
-	addr2, err := bipwallet.PubToAddress(bipwallet.TypeBty, pub2)
+	addr2, err := bipwallet.PubToAddress(pub2)
 	require.NoError(t, err)
 	if addr != addr2 {
 		t.Error("TestProcCreateNewAccount", "addr", addr, "addr2", addr2)
@@ -947,13 +965,13 @@ func testCreateNewAccountByIndex(t *testing.T, wallet *Wallet) {
 	addrstr := "19QtNuUS9UN4hQPLrnYr3UhJsQYy4z4TMT"
 	privkeybyte, err = common.FromHex(privstr)
 	require.NoError(t, err)
-	pub3, err := bipwallet.PrivkeyToPub(bipwallet.TypeBty, privkeybyte)
+	pub3, err := bipwallet.PrivkeyToPub(wallet.CoinType, uint32(wallet.SignType), privkeybyte)
 	require.NoError(t, err)
 	pubtmp := hex.EncodeToString(pub3)
 	if pubtmp != pubstr {
 		t.Error("TestProcCreateNewAccount", "pubtmp", pubtmp, "pubstr", pubstr)
 	}
-	addr3, err := bipwallet.PubToAddress(bipwallet.TypeBty, pub3)
+	addr3, err := bipwallet.PubToAddress(pub3)
 	require.NoError(t, err)
 	if addr3 != addrstr {
 		t.Error("TestProcCreateNewAccount", "addr3", addr3, "addrstr", addrstr)
@@ -993,8 +1011,16 @@ func TestInitSeedLibrary(t *testing.T) {
 	_, err = wallet.IsTransfer("16htvcBNSEA7fZhAdLJphDwQRQJaHpyHTp")
 	require.NoError(t, err)
 
-	_, err = GetPrivkeyBySeed(wallet.walletStore.GetDB(), replySeed.Seed, 0, 2)
+	_, err = GetPrivkeyBySeed(wallet.walletStore.GetDB(), replySeed.Seed, 0, 2, wallet.CoinType)
 	require.NoError(t, err)
+
+	// 指定生成私钥的index值
+	_, err = GetPrivkeyBySeed(wallet.walletStore.GetDB(), replySeed.Seed, 10000, 2, wallet.CoinType)
+	require.NoError(t, err)
+
+	// cointype不支持
+	_, err = GetPrivkeyBySeed(wallet.walletStore.GetDB(), replySeed.Seed, 10000, 50, wallet.CoinType)
+	assert.Equal(t, err, types.ErrNotSupport)
 
 	acc, err := wallet.GetBalance("1JzFKyrvSP5xWUkCMapUvrKDChgPDX1EN6", "token")
 	require.NoError(t, err)
@@ -1109,4 +1135,19 @@ func testProcImportPrivkeysFile2(t *testing.T, wallet *Wallet) {
 	os.Remove(fileName)
 	println("testProcImportPrivkeysFile end")
 	println("--------------------------")
+}
+
+type WalletReport struct {
+}
+
+func (report WalletReport) IsAutoMining() bool {
+	return true
+
+}
+func (report WalletReport) IsTicketLocked() bool {
+	return true
+
+}
+func (report WalletReport) PolicyName() string {
+	return "ticket"
 }

@@ -282,7 +282,7 @@ func (c *Chain33) GetTxByHashes(in rpctypes.ReqHashes, result *interface{}) erro
 
 func fmtTxDetail(tx *types.TransactionDetail, disableDetail bool) (*rpctypes.TransactionDetail, error) {
 	//增加判断，上游接口可能返回空指针
-	if tx == nil {
+	if tx == nil || tx.GetTx() == nil {
 		//参数中hash和返回的detail一一对应，顺序一致
 		return nil, nil
 	}
@@ -881,6 +881,7 @@ func (c *Chain33) DumpPrivkey(in types.ReqString, result *interface{}) error {
 	return nil
 }
 
+// DumpPrivkeysFile dumps private key to file.
 func (c *Chain33) DumpPrivkeysFile(in types.ReqPrivkeysFile, result *interface{}) error {
 	reply, err := c.cli.ExecWalletFunc("wallet", "DumpPrivkeysFile", &in)
 	if err != nil {
@@ -894,6 +895,7 @@ func (c *Chain33) DumpPrivkeysFile(in types.ReqPrivkeysFile, result *interface{}
 	return nil
 }
 
+// ImportPrivkeysFile imports private key from file.
 func (c *Chain33) ImportPrivkeysFile(in types.ReqPrivkeysFile, result *interface{}) error {
 	reply, err := c.cli.ExecWalletFunc("wallet", "ImportPrivkeysFile", &in)
 	if err != nil {
@@ -1162,30 +1164,11 @@ func (c *Chain33) GetExecBalance(in *types.ReqGetExecBalance, result *interface{
 	return nil
 }
 
-// AddSeqCallBack  add Seq CallBack
-func (c *Chain33) AddSeqCallBack(in *types.BlockSeqCB, result *interface{}) error {
-	reply, err := c.cli.AddSeqCallBack(in)
-	log.Error("AddSeqCallBack", "err", err, "reply", reply)
+// AddPushSubscribe  add Seq CallBack
+func (c *Chain33) AddPushSubscribe(in *types.PushSubscribeReq, result *interface{}) error {
+	resp, err := c.cli.AddPushSubscribe(in)
+	log.Error("AddPushSubscribe", "err", err, "reply", resp)
 
-	if err != nil {
-		return err
-	}
-	var resp rpctypes.ReplyAddCallback
-	resp.IsOk = reply.GetIsOk()
-	resp.Msg = string(reply.GetMsg())
-	if reply.GetSeqs() != nil {
-		for _, seq := range reply.Seqs {
-			hash := common.ToHex(seq.Hash)
-			resp.Seqs = append(resp.Seqs, &rpctypes.Sequence{Hash: hash, Type: seq.Type, Height: seq.Height, Sequence: seq.Sequence})
-		}
-	}
-	*result = &resp
-	return nil
-}
-
-// ListSeqCallBack  List Seq CallBack
-func (c *Chain33) ListSeqCallBack(in *types.ReqNil, result *interface{}) error {
-	resp, err := c.cli.ListSeqCallBack()
 	if err != nil {
 		return err
 	}
@@ -1193,9 +1176,19 @@ func (c *Chain33) ListSeqCallBack(in *types.ReqNil, result *interface{}) error {
 	return nil
 }
 
-// GetSeqCallBackLastNum  Get Seq Call Back Last Num
-func (c *Chain33) GetSeqCallBackLastNum(in *types.ReqString, result *interface{}) error {
-	resp, err := c.cli.GetSeqCallBackLastNum(in)
+// ListPushes  List Seq CallBack
+func (c *Chain33) ListPushes(in *types.ReqNil, result *interface{}) error {
+	resp, err := c.cli.ListPushes()
+	if err != nil {
+		return err
+	}
+	*result = resp
+	return nil
+}
+
+// GetPushSeqLastNum  Get Seq Call Back Last Num
+func (c *Chain33) GetPushSeqLastNum(in *types.ReqString, result *interface{}) error {
+	resp, err := c.cli.GetPushSeqLastNum(in)
 	if err != nil {
 		return err
 	}
@@ -1207,7 +1200,7 @@ func convertBlockDetails(details []*types.BlockDetail, retDetails *rpctypes.Bloc
 	for _, item := range details {
 		var bdtl rpctypes.BlockDetail
 		var block rpctypes.Block
-		if item == nil {
+		if item == nil || item.GetBlock() == nil {
 			retDetails.Items = append(retDetails.Items, nil)
 			continue
 		}

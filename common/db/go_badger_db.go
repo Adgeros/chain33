@@ -334,3 +334,7 @@ func (mBatch *GoBadgerDBBatch) Reset() {
 	mBatch.size = 0
 	mBatch.len = 0
 }
+
+// UpdateWriteSync ...
+func (mBatch *GoBadgerDBBatch) UpdateWriteSync(sync bool) {
+}

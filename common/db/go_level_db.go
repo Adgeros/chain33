@@ -253,6 +253,7 @@ func (db *GoLevelDB) BeginTx() (TxKV, error) {
 	return &goLevelDBTx{tx: tx}, nil
 }
 
+// CompactRange ...
 func (db *GoLevelDB) CompactRange(start, limit []byte) error {
 	r := util.Range{Start: start, Limit: limit}
 	return db.db.CompactRange(r)
@@ -555,6 +556,10 @@ func (mBatch *goLevelDBBatch) Reset() {
 	mBatch.batch.Reset()
 	mBatch.len = 0
 	mBatch.size = 0
+}
+
+func (mBatch *goLevelDBBatch) UpdateWriteSync(sync bool) {
+	mBatch.wop.Sync = sync
 }
 
 type goLevelDBTx struct {

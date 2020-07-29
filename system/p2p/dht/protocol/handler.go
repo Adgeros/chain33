@@ -15,8 +15,11 @@ var (
 func HandleEvent(msg *queue.Message) {
 
 	if eventHander, ok := types.GetEventHandler(msg.Ty); ok {
-		log.Debug("HandleEvent", "msgTy", msg.Ty)
+		//log.Debug("HandleEvent", "msgTy", msg.Ty)
 		eventHander(msg)
+	} else if eventHandler := GetEventHandler(msg.Ty); eventHandler != nil {
+		//log.Debug("HandleEvent2", "msgTy", msg.Ty)
+		eventHandler(msg)
 	} else {
 
 		log.Error("HandleEvent", "unknown msgTy", msg.Ty)

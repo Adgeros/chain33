@@ -2,27 +2,30 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-// package types protocol and stream register	`
+// Package types protocol and stream register	`
 package types
 
 import (
+	"context"
 	"reflect"
 	"time"
+
+	"github.com/33cn/chain33/system/p2p/dht/net"
 
 	"github.com/33cn/chain33/p2p"
 
 	"github.com/33cn/chain33/queue"
-	"github.com/33cn/chain33/system/p2p/dht/manage"
-	"github.com/33cn/chain33/system/p2p/dht/net"
 	p2pty "github.com/33cn/chain33/system/p2p/dht/types"
 	"github.com/33cn/chain33/types"
 	core "github.com/libp2p/go-libp2p-core"
+	"github.com/libp2p/go-libp2p-core/peer"
 )
 
 var (
 	protocolTypeMap = make(map[string]reflect.Type)
 )
 
+// IProtocol protocol interface
 type IProtocol interface {
 	InitProtocol(*P2PEnv)
 	GetP2PEnv() *P2PEnv
@@ -60,11 +63,30 @@ type P2PEnv struct {
 	ChainCfg        *types.Chain33Config
 	QueueClient     queue.Client
 	Host            core.Host
-	ConnManager     *manage.ConnManager
-	PeerInfoManager *manage.PeerInfoManager
+	ConnManager     IConnManager
+	PeerInfoManager IPeerInfoManager
 	Discovery       *net.Discovery
 	P2PManager      *p2p.Manager
 	SubConfig       *p2pty.P2PSubConfig
+	Pubsub          *net.PubSub
+	Ctx             context.Context
+	Cancel          context.CancelFunc
+}
+
+// IConnManager connection manager interface
+type IConnManager interface {
+	FetchConnPeers() []peer.ID
+	BoundSize() (in int, out int)
+	IsNeighbors(id peer.ID) bool
+	GetLatencyByPeer(pids []peer.ID) map[string]time.Duration
+}
+
+// IPeerInfoManager peer info manager interface
+type IPeerInfoManager interface {
+	Copy(dest *types.Peer, source *types.P2PPeerInfo)
+	Add(pid string, info *types.Peer)
+	FetchPeerInfosInMin() []*types.Peer
+	GetPeerInfoInMin(key string) *types.Peer
 }
 
 // BaseProtocol store public data
@@ -156,13 +178,13 @@ func (base *BaseProtocol) GetHost() core.Host {
 }
 
 // GetConnsManager get connection manager
-func (base *BaseProtocol) GetConnsManager() *manage.ConnManager {
+func (base *BaseProtocol) GetConnsManager() IConnManager {
 	return base.ConnManager
 
 }
 
 // GetPeerInfoManager get peer info manager
-func (base *BaseProtocol) GetPeerInfoManager() *manage.PeerInfoManager {
+func (base *BaseProtocol) GetPeerInfoManager() IPeerInfoManager {
 	return base.PeerInfoManager
 }
 

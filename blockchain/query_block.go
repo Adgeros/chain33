@@ -27,7 +27,7 @@ func (chain *BlockChain) GetBlockByHashes(hashes [][]byte) (respblocks *types.Bl
 			}
 			blocks.Items = append(blocks.Items, block)
 		} else {
-			blocks.Items = append(blocks.Items, nil)
+			blocks.Items = append(blocks.Items, new(types.BlockDetail))
 		}
 	}
 	return &blocks, nil
@@ -243,7 +243,7 @@ func (chain *BlockChain) ProcGetBlockDetailsMsg(requestblock *types.ReqBlocks) (
 func (chain *BlockChain) ProcAddBlockMsg(broadcast bool, blockdetail *types.BlockDetail, pid string) (*types.BlockDetail, error) {
 	beg := types.Now()
 	defer func() {
-		chainlog.Info("ProcAddBlockMsg", "cost", types.Since(beg))
+		chainlog.Debug("ProcAddBlockMsg", "cost", types.Since(beg))
 	}()
 
 	block := blockdetail.Block

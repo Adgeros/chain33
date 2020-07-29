@@ -163,7 +163,14 @@ func New(cfgpath string, mockapi client.QueueProtocolAPI) *Chain33Mock {
 //Listen :
 func (mock *Chain33Mock) Listen() {
 	pluginmgr.AddRPC(mock.rpc)
-	portgrpc, portjsonrpc := mock.rpc.Listen()
+	var portgrpc, portjsonrpc int
+	for {
+		portgrpc, portjsonrpc = mock.rpc.Listen()
+		if portgrpc != 0 && portjsonrpc != 0 {
+			break
+		}
+	}
+
 	if strings.HasSuffix(mock.cfg.RPC.JrpcBindAddr, ":0") {
 		l := len(mock.cfg.RPC.JrpcBindAddr)
 		mock.cfg.RPC.JrpcBindAddr = mock.cfg.RPC.JrpcBindAddr[0:l-2] + ":" + fmt.Sprint(portjsonrpc)
@@ -288,6 +295,11 @@ func (mock *Chain33Mock) GetRPC() *rpc.RPC {
 //GetCfg :
 func (mock *Chain33Mock) GetCfg() *types.Config {
 	return mock.cfg
+}
+
+//GetLastSendTx :
+func (mock *Chain33Mock) GetLastSendTx() []byte {
+	return mock.lastsend
 }
 
 //Close :
@@ -482,6 +494,7 @@ func (m *mockP2P) SetQueueClient(client queue.Client) {
 			case types.EventGetNetInfo:
 				msg.Reply(client.NewMessage(p2pKey, types.EventPeerList, &types.NodeNetInfo{}))
 			case types.EventTxBroadcast, types.EventBlockBroadcast:
+				client.FreeMessage(msg)
 			default:
 				msg.ReplyErr("p2p->Do not support "+types.GetEventName(int(msg.Ty)), types.ErrNotSupport)
 			}

@@ -68,7 +68,13 @@ func (q *QueueProtocol) send(topic string, ty int64, data interface{}) (*queue.M
 	if err != nil {
 		return &queue.Message{}, err
 	}
-	return client.WaitTimeout(msg, q.option.WaitTimeout)
+	reply, err := client.WaitTimeout(msg, q.option.WaitTimeout)
+	if err != nil {
+		return nil, err
+	}
+	//NOTE：内部错误情况较多，只对正确流程msg回收
+	client.FreeMessage(msg)
+	return reply, nil
 }
 
 func (q *QueueProtocol) notify(topic string, ty int64, data interface{}) (*queue.Message, error) {
@@ -126,6 +132,7 @@ func (q *QueueProtocol) SendTx(param *types.Transaction) (*types.Reply, error) {
 	} else {
 		err = types.ErrTypeAsset
 	}
+	q.client.FreeMessage(msg)
 	return reply, err
 }
 
@@ -482,8 +489,8 @@ func (q *QueueProtocol) LocalSet(param *types.LocalDBSet) error {
 }
 
 //LocalNew new a localdb object
-func (q *QueueProtocol) LocalNew(param *types.ReqNil) (*types.Int64, error) {
-	msg, err := q.send(blockchainKey, types.EventLocalNew, nil)
+func (q *QueueProtocol) LocalNew(readOnly bool) (*types.Int64, error) {
+	msg, err := q.send(blockchainKey, types.EventLocalNew, readOnly)
 	if err != nil {
 		log.Error("LocalNew", "Error", err.Error())
 		return nil, err
@@ -884,39 +891,37 @@ func (q *QueueProtocol) QueryChain(param *types.ChainExecutor) (types.Message, e
 	return nil, err
 }
 
-// AddSeqCallBack Add Seq CallBack
-func (q *QueueProtocol) AddSeqCallBack(param *types.BlockSeqCB) (*types.ReplyAddSeqCallback, error) {
-	msg, err := q.send(blockchainKey, types.EventAddBlockSeqCB, param)
+// AddPushSubscribe Add Seq CallBack
+func (q *QueueProtocol) AddPushSubscribe(param *types.PushSubscribeReq) (*types.ReplySubscribePush, error) {
+	msg, err := q.send(blockchainKey, types.EventSubscribePush, param)
 	if err != nil {
-		log.Error("AddSeqCallBack", "Error", err.Error())
+		log.Error("AddPushSubscribe", "Error", err.Error())
 		return nil, err
 	}
-	if reply, ok := msg.GetData().(*types.ReplyAddSeqCallback); ok {
+	if reply, ok := msg.GetData().(*types.ReplySubscribePush); ok {
 		return reply, nil
 	}
 	return nil, types.ErrTypeAsset
 }
 
-// ListSeqCallBack List Seq CallBacks
-func (q *QueueProtocol) ListSeqCallBack() (*types.BlockSeqCBs, error) {
-
-	msg, err := q.send(blockchainKey, types.EventListBlockSeqCB, &types.ReqNil{})
+// ListPushes List Seq CallBacks
+func (q *QueueProtocol) ListPushes() (*types.PushSubscribes, error) {
+	msg, err := q.send(blockchainKey, types.EventListPushes, &types.ReqNil{})
 	if err != nil {
-		log.Error("ListSeqCallBack", "Error", err.Error())
+		log.Error("ListPushes", "Error", err.Error())
 		return nil, err
 	}
-	if reply, ok := msg.GetData().(*types.BlockSeqCBs); ok {
+	if reply, ok := msg.GetData().(*types.PushSubscribes); ok {
 		return reply, nil
 	}
 	return nil, types.ErrTypeAsset
 }
 
-// GetSeqCallBackLastNum Get Seq Call Back Last Num
-func (q *QueueProtocol) GetSeqCallBackLastNum(param *types.ReqString) (*types.Int64, error) {
-
-	msg, err := q.send(blockchainKey, types.EventGetSeqCBLastNum, param)
+// GetPushSeqLastNum Get Seq Call Back Last Num
+func (q *QueueProtocol) GetPushSeqLastNum(param *types.ReqString) (*types.Int64, error) {
+	msg, err := q.send(blockchainKey, types.EventGetPushLastNum, param)
 	if err != nil {
-		log.Error("ListSeqCallBack", "Error", err.Error())
+		log.Error("GetPushSeqLastNum", "Error", err.Error())
 		return nil, err
 	}
 	if reply, ok := msg.GetData().(*types.Int64); ok {
