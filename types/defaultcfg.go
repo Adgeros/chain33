@@ -60,6 +60,8 @@ enableFetchP2pstore=false
 enableIfDelLocalChunk=false
 
 enablePushSubscribe=true
+maxActiveBlockNum=1024
+maxActiveBlockSize=100
 
 
 [p2p]
@@ -214,6 +216,9 @@ superManager=[
 [exec.sub.autonomy]
 total="16htvcBNSEA7fZhAdLJphDwQRQJaHpyHTp"
 useBalance=false
+
+[exec.sub.jvm]
+jdkPath="../../../../build/j2sdk-image"
 `
 
 //GetDefaultCfgstring ...

@@ -26,6 +26,8 @@ type Config struct {
 	CoinSymbol     string       `json:"coinSymbol,omitempty"`
 	EnableParaFork bool         `json:"enableParaFork,omitempty"`
 	Metrics        *Metrics     `json:"metrics,omitempty"`
+	ChainID        int32        `json:"chainID,omitempty"`
+	AddrVer        byte         `json:"addrVer,omitempty"`
 }
 
 // ForkList fork列表配置
@@ -172,6 +174,16 @@ type BlockChain struct {
 	EnableIfDelLocalChunk bool `json:"enableIfDelLocalChunk,omitempty"`
 	// 使能注册推送区块、区块头或交易回执
 	EnablePushSubscribe bool `json:"EnablePushSubscribe,omitempty"`
+	// 当前活跃区块的缓存数量
+	MaxActiveBlockNum int `json:"maxActiveBlockNum,omitempty"`
+	// 当前活跃区块的缓存大小M为单位
+	MaxActiveBlockSize int `json:"maxActiveBlockSize,omitempty"`
+
+	//HighAllowPackHeight 允许打包的High区块高度
+	HighAllowPackHeight int64 `json:"highAllowPackHeight,omitempty"`
+
+	//LowAllowPackHeight 允许打包的low区块高度
+	LowAllowPackHeight int64 `json:"lowAllowPackHeight,omitempty"`
 }
 
 // P2P 配置
