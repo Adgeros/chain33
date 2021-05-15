@@ -75,6 +75,7 @@ var (
 	ErrTxExpire                   = errors.New("ErrTxExpire")
 	ErrHeaderNotSet               = errors.New("ErrHeaderNotSet")
 	ErrSign                       = errors.New("ErrSign")
+	ErrCertificate                = errors.New("ErrCertificate")
 	ErrFeeTooLow                  = errors.New("ErrFeeTooLow")
 	ErrEmptyTx                    = errors.New("ErrEmptyTx")
 	ErrTxFeeTooLow                = errors.New("ErrTxFeeTooLow")
@@ -202,4 +203,5 @@ var (
 	ErrTxReceiptReduced   = errors.New("ErrTxReceiptReduced")
 	ErrPushNotSubscribed  = errors.New("ErrPushNotSubscribed")
 	ErrTxChainID          = errors.New("ErrTxChainID")
+	ErrTimeout            = errors.New("ErrTimeout")
 )

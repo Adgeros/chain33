@@ -129,6 +129,29 @@ func (c *Chain33) SendTransaction(in rpctypes.RawParm, result *interface{}) erro
 	return err
 }
 
+// SendTransactionSync send transaction and wait reply
+func (c *Chain33) SendTransactionSync(in rpctypes.RawParm, result *interface{}) error {
+	err := c.SendTransaction(in, result)
+	if err != nil {
+		return err
+	}
+	hash := (*result).(string)
+	param := rpctypes.QueryParm{Hash: hash}
+	var res interface{}
+	for i := 0; i < 100; i++ {
+		err = c.QueryTransaction(param, &res)
+		if err == types.ErrInvalidParam || err == types.ErrTypeAsset {
+			return err
+		}
+		if _, ok := (res).(*rpctypes.TransactionDetail); ok {
+			return nil
+		}
+		time.Sleep(time.Second / 3)
+	}
+
+	return types.ErrTimeout
+}
+
 // GetHexTxByHash get hex transaction by hash
 func (c *Chain33) GetHexTxByHash(in rpctypes.QueryParm, result *interface{}) error {
 	var data types.ReqHash
@@ -1085,6 +1108,16 @@ func (c *Chain33) GetTimeStatus(in *types.ReqNil, result *interface{}) error {
 	return nil
 }
 
+// GetServerTime get server time
+func (c *Chain33) GetServerTime(in *types.ReqNil, result *interface{}) error {
+
+	serverTime := &types.ServerTime{
+		CurrentTimestamp: types.Now().Unix(),
+	}
+	*result = serverTime
+	return nil
+}
+
 // CloseQueue close queue
 func (c *Chain33) CloseQueue(in *types.ReqNil, result *interface{}) error {
 	go func() {
@@ -1482,4 +1515,10 @@ func (c *Chain33) QueryChain(in rpctypes.ChainExecutor, result *interface{}) err
 	}
 	*result = jsonMsg
 	return err
+}
+
+// GetCryptoList 获取加密列表
+func (c *Chain33) GetCryptoList(in *types.ReqNil, result *interface{}) error {
+	*result = c.cli.GetCryptoList()
+	return nil
 }

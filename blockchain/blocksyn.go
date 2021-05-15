@@ -146,7 +146,10 @@ func (chain *BlockChain) SynRoutine() {
 
 	//5分钟检测一次系统时间，不同步提示告警
 	checkClockDriftTicker := time.NewTicker(300 * time.Second)
-
+	if chain.cfg.DisableClockDriftCheck {
+		checkBlockHashTicker.Stop()
+		checkClockDriftTicker.C = nil
+	}
 	//3分钟尝试检测一次故障peer是否已经恢复
 	recoveryFaultPeerTicker := time.NewTicker(180 * time.Second)
 
@@ -318,8 +321,8 @@ func (chain *BlockChain) fetchPeerList() error {
 		return err
 	}
 
-	peerlist := resp.GetData().(*types.PeerList)
-	if peerlist == nil {
+	peerlist, ok := resp.GetData().(*types.PeerList)
+	if !ok {
 		synlog.Error("fetchPeerList", "peerlist", "is nil")
 		return types.ErrNoPeer
 	}
@@ -1096,8 +1099,24 @@ func (chain *BlockChain) CheckBestChainProc(headers *types.Headers, pid string) 
 // ChunkRecordSync 同步chunkrecord
 func (chain *BlockChain) ChunkRecordSync() {
 	curheight := chain.GetBlockHeight()
+	// 记录检测到高度停止增长的次数
+	if curheight == atomic.LoadInt64(&chain.lastHeight) {
+		// 若 peerList 只有一个本节点说明网络不通，不记录
+		if len(chain.GetPeers()) > 1 {
+			atomic.AddInt32(&chain.heightNotIncreaseTimes, 1)
+		}
+	} else {
+		atomic.StoreInt64(&chain.lastHeight, curheight)
+		atomic.StoreInt32(&chain.heightNotIncreaseTimes, 0)
+	}
+
 	peerMaxBlkHeight := chain.GetPeerMaxBlkHeight()
 	recvChunk := chain.GetCurRecvChunkNum()
+	// re-download chunk hash after 6 times no increasing.
+	if atomic.CompareAndSwapInt32(&chain.heightNotIncreaseTimes, 6, 0) {
+		recvChunk = curheight/chain.cfg.ChunkblockNum - 1
+		chainlog.Info("ChunkRecordSync redownload", "start", recvChunk+1)
+	}
 
 	curShouldChunk, _, _ := chain.CalcChunkInfo(curheight)
 	targetChunk, _, _ := chain.CalcSafetyChunkInfo(peerMaxBlkHeight)

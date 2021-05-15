@@ -52,13 +52,13 @@ type Chain33Config struct {
 	minerExecs []string
 	title      string
 
-	mu              sync.Mutex
-	chainConfig     map[string]interface{}
-	mver            *mversion
-	coinSymbol      string
-	forks           *Forks
-	enableCheckFork bool
-	chainID         int32
+	mu               sync.Mutex
+	chainConfig      map[string]interface{}
+	mver             *mversion
+	coinSymbol       string
+	forks            *Forks
+	disableCheckFork bool
+	chainID          int32
 }
 
 //ChainParam 结构体
@@ -116,14 +116,15 @@ func NewChain33Config(cfgstring string) *Chain33Config {
 func NewChain33ConfigNoInit(cfgstring string) *Chain33Config {
 	cfg, sub := InitCfgString(cfgstring)
 	chain33Cfg := &Chain33Config{
-		mcfg:        cfg,
-		scfg:        sub,
-		minerExecs:  []string{"ticket"}, //挖矿的合约名单，适配旧配置，默认ticket
-		title:       cfg.Title,
-		chainConfig: make(map[string]interface{}),
-		coinSymbol:  "bty",
-		forks:       &Forks{make(map[string]int64)},
-		chainID:     cfg.ChainID,
+		mcfg:             cfg,
+		scfg:             sub,
+		minerExecs:       []string{"ticket"}, //挖矿的合约名单，适配旧配置，默认ticket
+		title:            cfg.Title,
+		chainConfig:      make(map[string]interface{}),
+		coinSymbol:       "bty",
+		forks:            &Forks{make(map[string]int64)},
+		chainID:          cfg.ChainID,
+		disableCheckFork: cfg.DisableForkCheck,
 	}
 	// 先将每个模块的fork初始化到Chain33Config中，然后如果需要再将toml中的替换
 	chain33Cfg.setDefaultConfig()
@@ -149,9 +150,9 @@ func (c *Chain33Config) GetSubConfig() *ConfigSubModule {
 	return c.scfg
 }
 
-//EnableCheckFork ...
-func (c *Chain33Config) EnableCheckFork(enable bool) {
-	c.enableCheckFork = false
+//DisableCheckFork ...
+func (c *Chain33Config) DisableCheckFork(d bool) {
+	c.disableCheckFork = d
 }
 
 //GetForks ...
@@ -696,17 +697,6 @@ func InitCfgString(cfgstring string) (*Config, *ConfigSubModule) {
 	return cfg, sub
 }
 
-// subModule 子模块结构体
-type subModule struct {
-	Store     map[string]interface{}
-	Exec      map[string]interface{}
-	Consensus map[string]interface{}
-	Wallet    map[string]interface{}
-	Mempool   map[string]interface{}
-	Metrics   map[string]interface{}
-	P2P       map[string]interface{}
-}
-
 //ReadFile ...
 func ReadFile(path string) string {
 	return readFile(path)
@@ -737,6 +727,7 @@ func parseSubModule(cfg *subModule) (*ConfigSubModule, error) {
 	subcfg.Mempool = parseItem(cfg.Mempool)
 	subcfg.Metrics = parseItem(cfg.Metrics)
 	subcfg.P2P = parseItem(cfg.P2P)
+	subcfg.Crypto = parseItem(cfg.Crypto)
 	return &subcfg, nil
 }
 

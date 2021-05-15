@@ -10,6 +10,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"math/rand"
+	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -135,7 +136,8 @@ func initP2P(p *P2P) *P2P {
 	p.connManager = manage.NewConnManager(p.ctx, p.host, p.discovery.RoutingTable(), bandwidthTracker, p.subCfg)
 	p.peerInfoManager = manage.NewPeerInfoManager(p.ctx, p.host, p.client)
 	p.taskGroup = &sync.WaitGroup{}
-	p.db = newDB("", p.p2pCfg.Driver, p.subCfg.DHTDataPath, p.subCfg.DHTDataCache)
+
+	p.db = newDB("", p.p2pCfg.Driver, filepath.Dir(p.p2pCfg.DbPath), p.subCfg.DHTDataCache)
 	return p
 }
 
@@ -177,6 +179,7 @@ func (p *P2P) StartP2P() {
 func (p *P2P) CloseP2P() {
 	log.Info("p2p closing")
 	p.discovery.Close()
+	p.cancel()
 	p.waitTaskDone()
 	p.db.Close()
 
@@ -186,7 +189,6 @@ func (p *P2P) CloseP2P() {
 
 	}
 	p.host.Close()
-	p.cancel()
 	log.Info("p2p closed")
 }
 
@@ -239,7 +241,7 @@ func (p *P2P) buildHostOptions(priv crypto.PrivKey, bandwidthTracker metrics.Rep
 		//2分钟的宽限期,定期清理
 		options = append(options, libp2p.ConnectionManager(connmgr.NewConnManager(minconnect, maxconnect, time.Minute*2)))
 		//ConnectionGater,处理网络连接的策略
-		options = append(options, libp2p.ConnectionGater(manage.NewConnGater(&p.host, p.subCfg.MaxConnectNum, timeCache)))
+		options = append(options, libp2p.ConnectionGater(manage.NewConnGater(&p.host, p.subCfg.MaxConnectNum, timeCache, genAddrInfos(p.subCfg.WhitePeerList))))
 	}
 	//关闭ping
 	options = append(options, libp2p.Ping(false))
@@ -447,7 +449,7 @@ func newDB(name, backend, dir string, cache int32) dbm.DB {
 	if backend == "" {
 		backend = "leveldb"
 	}
-	if dir == "" {
+	if dir == "" || dir == "." {
 		dir = "datadir"
 	}
 	if cache <= 0 {

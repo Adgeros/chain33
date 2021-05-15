@@ -493,6 +493,25 @@ func TestChain33_SendTransaction(t *testing.T) {
 	mock.AssertExpectationsForObjects(t, api)
 }
 
+func TestChain33_SendTransactionSync(t *testing.T) {
+	api := new(mocks.QueueProtocolAPI)
+	cfg := types.NewChain33Config(types.GetDefaultCfgstring())
+	api.On("GetConfig", mock.Anything).Return(cfg)
+	tx := &types.Transaction{}
+	hash := tx.Hash()
+	api.On("SendTx", tx).Return(&types.Reply{IsOk: true, Msg: hash}, nil)
+	api.On("QueryTx", mock.Anything).Return(&types.TransactionDetail{}, nil)
+	testChain33 := newTestChain33(api)
+	var testResult interface{}
+	data := rpctypes.RawParm{
+		Data: common.ToHex(types.Encode(tx)),
+	}
+	err := testChain33.SendTransactionSync(data, &testResult)
+	t.Log(err)
+	assert.Equal(t, common.ToHex(hash), testResult.(string))
+	assert.Nil(t, err)
+}
+
 func TestChain33_GetHexTxByHash(t *testing.T) {
 	cfg := types.NewChain33Config(types.GetDefaultCfgstring())
 	api := new(mocks.QueueProtocolAPI)
@@ -1227,6 +1246,16 @@ func TestChain33_GetTimeStatus(t *testing.T) {
 	assert.Nil(t, err)
 }
 
+func TestChain33_GetServerTime(t *testing.T) {
+	cfg := types.NewChain33Config(types.GetDefaultCfgstring())
+	api := new(mocks.QueueProtocolAPI)
+	api.On("GetConfig", mock.Anything).Return(cfg)
+	client := newTestChain33(api)
+	var result interface{}
+	err := client.GetServerTime(&types.ReqNil{}, &result)
+	assert.Nil(t, err)
+}
+
 func TestChain33_GetLastBlockSequence(t *testing.T) {
 	cfg := types.NewChain33Config(types.GetDefaultCfgstring())
 	api := new(mocks.QueueProtocolAPI)
@@ -1740,4 +1769,15 @@ func TestChain33_convertHeader(t *testing.T) {
 	assert.Equal(t, header.GetBlockTime(), reheader.BlockTime)
 	assert.Equal(t, header.GetHeight(), reheader.Height)
 
+}
+
+func TestChain33_GetCryptoList(t *testing.T) {
+	cfg := types.NewChain33Config(types.GetDefaultCfgstring())
+	api := new(mocks.QueueProtocolAPI)
+	api.On("GetConfig", mock.Anything).Return(cfg)
+	client := newTestChain33(api)
+	var result interface{}
+	api.On("GetCryptoList").Return(nil)
+	err := client.GetCryptoList(&types.ReqNil{}, &result)
+	assert.Nil(t, err)
 }
